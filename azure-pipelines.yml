@@ -1,0 +1,41 @@
+# azure-pipelines.yml — Pipeline CI/CD pour Leoni Maintenance Ticketing System
+# Ce fichier automatise ce qu'on faisait manuellement : installer les
+# dépendances et lancer les tests, à chaque push de code.
+
+# Déclenche le pipeline sur chaque push vers la branche main
+trigger:
+  branches:
+    include:
+      - main
+
+# Déclenche aussi le pipeline sur chaque Pull Request vers main
+# (validation AVANT le merge, comme on l'a expliqué)
+pr:
+  branches:
+    include:
+      - main
+
+# Utilise ton agent auto-hébergé (celui installé sur ton PC),
+# pas un agent Microsoft dans le cloud — cohérent avec le fait
+# que le déploiement final ciblera aussi ton PC
+pool:
+  name: Default
+
+steps:
+  # Étape 1 : installe Python 3.13 sur l'agent (ton PC)
+  - task: UsePythonVersion@0
+    inputs:
+      versionSpec: '3.13'
+    displayName: 'Installer Python 3.13'
+
+  # Étape 2 : installe les dépendances du projet
+  - script: |
+      cd backend
+      pip install -r requirements.txt
+    displayName: 'Installer les dépendances'
+
+  # Étape 3 : lance les tests avec pytest
+  - script: |
+      cd backend
+      pytest -v
+    displayName: 'Exécuter les tests unitaires et d''intégration'
