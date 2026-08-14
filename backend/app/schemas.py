@@ -3,7 +3,6 @@
 # et ce que l'API retourne (sortie), avec validation automatique par FastAPI.
 
 from datetime import datetime
-from typing import Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -19,7 +18,7 @@ class TicketCreate(BaseModel):
     machine_name: str
     description: str
     priority: TicketPriority = TicketPriority.MEDIUM  # valeur par défaut si non précisé
-    assigned_to: Optional[str] = None  # optionnel : peut être laissé vide à la création
+    assigned_to: str | None = None  # optionnel : peut être laissé vide à la création
 
 
 class TicketUpdate(BaseModel):
@@ -27,11 +26,11 @@ class TicketUpdate(BaseModel):
     Données attendues pour MODIFIER un ticket existant.
     Tous les champs sont optionnels : le client n'envoie que ce qu'il veut changer.
     """
-    machine_name: Optional[str] = None
-    description: Optional[str] = None
-    priority: Optional[TicketPriority] = None
-    status: Optional[TicketStatus] = None
-    assigned_to: Optional[str] = None
+    machine_name: str | None = None
+    description: str | None = None
+    priority: TicketPriority | None = None
+    status: TicketStatus | None = None
+    assigned_to: str | None = None
 
 
 class TicketResponse(BaseModel):
@@ -45,7 +44,7 @@ class TicketResponse(BaseModel):
     description: str
     priority: TicketPriority
     status: TicketStatus
-    assigned_to: Optional[str]
+    assigned_to: str | None
     created_at: datetime
     updated_at: datetime
 

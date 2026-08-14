@@ -5,7 +5,8 @@
 import enum
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, Integer, String, Enum, DateTime
+from sqlalchemy import Column, DateTime, Enum, Integer, String
+
 from app.database import Base
 
 

@@ -1,0 +1,11 @@
+# pyproject.toml — Configuration des outils Python (Ruff, etc.)
+
+[tool.ruff]
+# Longueur de ligne maximale (standard raisonnable)
+line-length = 100
+
+[tool.ruff.lint]
+# Règles ignorées globalement :
+# B008 : Ruff pense que Depends(get_db) est dangereux, mais c'est
+# le pattern OFFICIEL de FastAPI pour l'injection de dépendances.
+ignore = ["B008"]

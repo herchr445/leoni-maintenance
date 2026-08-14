@@ -4,6 +4,7 @@
 # ni de tester à la main dans un navigateur.
 
 from fastapi.testclient import TestClient  # Permet de simuler des requêtes HTTP
+
 from app.main import app  # Importe l'application FastAPI qu'on veut tester
 
 # Crée un client de test lié à notre app.

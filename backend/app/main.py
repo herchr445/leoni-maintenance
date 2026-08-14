@@ -1,12 +1,15 @@
 # main.py — Point d'entrée du backend FastAPI
-from fastapi import FastAPI, Depends
+
+from fastapi import (
+    Depends,
+    FastAPI,
+    HTTPException,  # ← nouvel import à ajouter en haut
+)
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from typing import Optional
-from app.database import engine, Base, get_db
-from app import models, schemas, crud
-from fastapi import HTTPException  # ← nouvel import à ajouter en haut
 
+from app import crud, schemas
+from app.database import Base, engine, get_db
 
 Base.metadata.create_all(bind=engine)
 
@@ -43,12 +46,11 @@ def create_ticket(ticket: schemas.TicketCreate, db: Session = Depends(get_db)):
     Crée un nouveau ticket de maintenance.
     """
     return crud.create_ticket(db=db, ticket=ticket)
-from typing import Optional
 
 @app.get("/api/tickets", response_model=list[schemas.TicketResponse])
 def list_tickets(
-    status: Optional[str] = None,
-    priority: Optional[str] = None,
+    status: str | None = None,
+    priority: str | None = None,
     db: Session = Depends(get_db)
 ):
     """
@@ -89,4 +91,3 @@ def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     success = crud.delete_ticket(db=db, ticket_id=ticket_id)
     if not success:
         raise HTTPException(status_code=404, detail="Ticket not found")
-    return None
