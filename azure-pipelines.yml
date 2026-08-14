@@ -22,11 +22,12 @@ pool:
   name: Default
 
 steps:
-  # Étape 1 : installe Python 3.13 sur l'agent (ton PC)
-  - task: UsePythonVersion@0
-    inputs:
-      versionSpec: '3.13'
-    displayName: 'Installer Python 3.13'
+  # Étape 1 : vérifie que Python est bien accessible sur l'agent (ton PC).
+  # On n'utilise PAS UsePythonVersion@0 ici, car cette tâche essaie de
+  # télécharger une version Python depuis GitHub — inutile et source
+  # d'erreur sur un agent self-hosted où Python est déjà installé.
+  - script: python --version
+    displayName: 'Vérifier Python'
 
   # Étape 2 : installe les dépendances du projet
   - script: |
