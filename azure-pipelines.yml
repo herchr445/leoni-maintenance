@@ -12,12 +12,6 @@ pool:
   name: Default
 
 steps:
-  # Étape de diagnostic temporaire — à supprimer une fois le problème résolu
-  - script: |
-      whoami
-      echo %PATH%
-    displayName: 'DEBUG - Vérifier utilisateur et PATH'
-
   - script: python --version
     displayName: 'Vérifier Python'
 
