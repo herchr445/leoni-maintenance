@@ -90,3 +90,13 @@ stages:
           - script: |
               docker run -d --name leoni-backend --restart unless-stopped -p 8000:8000 leoni-maintenance-backend:$(Build.BuildId)
             displayName: 'Déployer le conteneur Backend'
+
+          - script: |
+              docker stop leoni-frontend
+              docker rm leoni-frontend
+            displayName: 'Arrêter l''ancien conteneur frontend (si existant)'
+            continueOnError: true
+
+          - script: |
+              docker run -d --name leoni-frontend --restart unless-stopped -p 8081:80 leoni-maintenance-frontend:$(Build.BuildId)
+            displayName: 'Déployer le conteneur Frontend'
