@@ -1,3 +1,5 @@
+# azure-pipelines.yml — Pipeline CI/CD pour Leoni Maintenance Ticketing System
+
 trigger:
   branches:
     include:
@@ -12,6 +14,8 @@ pool:
   name: Default
 
 steps:
+  # ===== STAGE 1 : BUILD & TEST =====
+
   - script: python --version
     displayName: 'Vérifier Python'
 
@@ -24,3 +28,19 @@ steps:
       cd backend
       pytest -v
     displayName: 'Exécuter les tests unitaires et d''intégration'
+
+  # ===== STAGE 2 : QUALITÉ & SÉCURITÉ =====
+
+  - script: |
+      cd backend
+      ruff check .
+    displayName: 'Analyse de qualité (Ruff)'
+
+  - script: |
+      cd backend
+      bandit -r app/
+    displayName: 'Scan de sécurité du code (Bandit)'
+
+  - script: |
+      C:\tools\gitleaks\gitleaks.exe detect --source . --verbose
+    displayName: 'Détection de secrets (Gitleaks)'
