@@ -10,49 +10,55 @@ pr:
     include:
       - main
 
-pool:
-  name: Default
+stages:
 
-steps:
-  # ===== STAGE 1 : BUILD & TEST =====
+# ===================================================================
+# STAGE 1 : CI — Build, Test, Qualité, Sécurité, Docker
+# ===================================================================
+- stage: CI
+  displayName: 'CI - Build, Test & Quality'
+  jobs:
+  - job: BuildAndTest
+    pool:
+      name: Default
+    steps:
 
-  - script: python --version
-    displayName: 'Vérifier Python'
+      # ----- STAGE 1a : BUILD & TEST -----
+      - script: python --version
+        displayName: 'Vérifier Python'
 
-  - script: |
-      cd backend
-      pip install -r requirements.txt
-    displayName: 'Installer les dépendances'
+      - script: |
+          cd backend
+          pip install -r requirements.txt
+        displayName: 'Installer les dépendances'
 
-  - script: |
-      cd backend
-      pytest -v --cov=app --cov-report=term-missing
-    displayName: 'Exécuter les tests unitaires et d''intégration'
+      - script: |
+          cd backend
+          pytest -v --cov=app --cov-report=term-missing
+        displayName: 'Exécuter les tests unitaires et d''intégration'
 
-  # ===== STAGE 2 : QUALITÉ & SÉCURITÉ =====
+      # ----- STAGE 1b : QUALITÉ & SÉCURITÉ -----
+      - script: |
+          cd backend
+          ruff check .
+        displayName: 'Analyse de qualité (Ruff)'
 
-  - script: |
-      cd backend
-      ruff check .
-    displayName: 'Analyse de qualité (Ruff)'
+      - script: |
+          cd backend
+          bandit -r app/
+        displayName: 'Scan de sécurité du code (Bandit)'
 
-  - script: |
-      cd backend
-      bandit -r app/
-    displayName: 'Scan de sécurité du code (Bandit)'
+      - script: |
+          C:\tools\gitleaks\gitleaks.exe detect --source . --verbose
+        displayName: 'Détection de secrets (Gitleaks)'
 
-  - script: |
-      C:\tools\gitleaks\gitleaks.exe detect --source . --verbose
-    displayName: 'Détection de secrets (Gitleaks)'
+      # ----- STAGE 1c : BUILD DES IMAGES DOCKER -----
+      - script: |
+          cd backend
+          docker build -t leoni-maintenance-backend:$(Build.BuildId) .
+        displayName: 'Construire l''image Docker (Backend)'
 
-  # ===== STAGE 3 : BUILD DES IMAGES DOCKER =====
-
-  - script: |
-      cd backend
-      docker build -t leoni-maintenance-backend:$(Build.BuildId) .
-    displayName: 'Construire l''image Docker (Backend)'
-
-  - script: |
-      cd frontend
-      docker build -t leoni-maintenance-frontend:$(Build.BuildId) .
-    displayName: 'Construire l''image Docker (Frontend)'
+      - script: |
+          cd frontend
+          docker build -t leoni-maintenance-frontend:$(Build.BuildId) .
+        displayName: 'Construire l''image Docker (Frontend)'
