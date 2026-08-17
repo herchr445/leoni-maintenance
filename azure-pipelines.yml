@@ -100,3 +100,8 @@ stages:
           - script: |
               docker run -d --name leoni-frontend --restart unless-stopped -p 8081:80 leoni-maintenance-frontend:$(Build.BuildId)
             displayName: 'Déployer le conteneur Frontend'
+
+          - script: |
+              timeout /t 5
+              curl -f http://localhost:8000/health || exit 1
+            displayName: 'Vérifier la santé du backend (health check)'
