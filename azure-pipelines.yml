@@ -23,6 +23,18 @@ stages:
       name: Default
     steps:
 
+      # ----- SONARCLOUD : PRÉPARATION (avant tout le reste) -----
+      - task: SonarCloudPrepare@3
+        inputs:
+          SonarCloud: 'SonarCloud-Connection'
+          organization: 'leoni-maintenance'
+          scannerMode: 'CLI'
+          configMode: 'manual'
+          cliProjectKey: 'leoni-maintenance'
+          cliProjectName: 'leoni-maintenance'
+          cliSources: 'backend'
+        displayName: 'Préparer l''analyse SonarCloud'
+
       # ----- STAGE 1a : BUILD & TEST -----
       - script: python --version
         displayName: 'Vérifier Python'
@@ -62,6 +74,15 @@ stages:
           cd frontend
           docker build -t leoni-maintenance-frontend:$(Build.BuildId) .
         displayName: 'Construire l''image Docker (Frontend)'
+
+      # ----- SONARCLOUD : ANALYSE & PUBLICATION (fin du stage CI) -----
+      - task: SonarCloudAnalyze@3
+        displayName: 'Exécuter l''analyse SonarCloud'
+
+      - task: SonarCloudPublish@3
+        inputs:
+          pollingTimeoutSec: '300'
+        displayName: 'Publier les résultats SonarCloud'
 
 # ===================================================================
 # STAGE 2 : DEPLOY — Déploiement vers l'environnement local
