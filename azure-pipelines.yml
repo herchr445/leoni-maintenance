@@ -44,3 +44,15 @@ steps:
   - script: |
       C:\tools\gitleaks\gitleaks.exe detect --source . --verbose
     displayName: 'Détection de secrets (Gitleaks)'
+
+  # ===== STAGE 3 : BUILD DES IMAGES DOCKER =====
+
+  - script: |
+      cd backend
+      docker build -t leoni-maintenance-backend:$(Build.BuildId) .
+    displayName: 'Construire l''image Docker (Backend)'
+
+  - script: |
+      cd frontend
+      docker build -t leoni-maintenance-frontend:$(Build.BuildId) .
+    displayName: 'Construire l''image Docker (Frontend)'
