@@ -17,7 +17,10 @@ app = FastAPI(title="Leoni Maintenance Ticketing System")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=[
+        "http://localhost:5173",  # Frontend en mode développement (npm run dev)
+        "http://localhost:8081",  # Frontend conteneurisé (déploiement Docker)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
