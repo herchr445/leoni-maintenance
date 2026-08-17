@@ -92,6 +92,11 @@ stages:
             displayName: 'Déployer le conteneur Backend'
 
           - script: |
+              ping -n 6 127.0.0.1 >nul
+              curl -f http://localhost:8000/health || exit 1
+            displayName: 'Vérifier la santé du backend (health check)'
+
+          - script: |
               docker stop leoni-frontend
               docker rm leoni-frontend
             displayName: 'Arrêter l''ancien conteneur frontend (si existant)'
@@ -102,6 +107,6 @@ stages:
             displayName: 'Déployer le conteneur Frontend'
 
           - script: |
-              timeout /t 5
-              curl -f http://localhost:8000/health || exit 1
-            displayName: 'Vérifier la santé du backend (health check)'
+              ping -n 6 127.0.0.1 >nul
+              curl -f http://localhost:8081 || exit 1
+            displayName: 'Vérifier la santé du frontend (health check)'
