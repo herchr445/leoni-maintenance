@@ -62,3 +62,31 @@ stages:
           cd frontend
           docker build -t leoni-maintenance-frontend:$(Build.BuildId) .
         displayName: 'Construire l''image Docker (Frontend)'
+
+# ===================================================================
+# STAGE 2 : DEPLOY — Déploiement vers l'environnement local
+# ===================================================================
+- stage: Deploy
+  displayName: 'Deploy to Dev-Desktop'
+  dependsOn: CI
+  condition: succeeded()
+  jobs:
+  - deployment: DeployToDesktop
+    displayName: 'Déployer sur le PC local'
+    pool:
+      name: Default
+    environment: 'Dev-Desktop'
+    strategy:
+      runOnce:
+        deploy:
+          steps:
+
+          - script: |
+              docker stop leoni-backend
+              docker rm leoni-backend
+            displayName: 'Arrêter l''ancien conteneur backend (si existant)'
+            continueOnError: true
+
+          - script: |
+              docker run -d --name leoni-backend --restart unless-stopped -p 8000:8000 leoni-maintenance-backend:$(Build.BuildId)
+            displayName: 'Déployer le conteneur Backend'
