@@ -79,6 +79,10 @@ stages:
       - task: SonarCloudAnalyze@3
         displayName: 'Exécuter l''analyse SonarCloud'
 
+      - script: |
+          ping -n 21 127.0.0.1 >nul
+        displayName: 'Attendre le traitement du rapport SonarCloud (20s)'
+
       - task: SonarCloudPublish@3
         inputs:
           pollingTimeoutSec: '300'
