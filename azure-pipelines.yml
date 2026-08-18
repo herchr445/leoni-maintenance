@@ -71,9 +71,19 @@ stages:
         displayName: 'Construire l''image Docker (Backend)'
 
       - script: |
+          C:\tools\trivy\trivy.exe image --severity HIGH,CRITICAL leoni-maintenance-backend:$(Build.BuildId)
+        displayName: 'Scanner l''image Docker Backend (Trivy)'
+        continueOnError: true
+
+      - script: |
           cd frontend
           docker build -t leoni-maintenance-frontend:$(Build.BuildId) .
         displayName: 'Construire l''image Docker (Frontend)'
+
+      - script: |
+          C:\tools\trivy\trivy.exe image --severity HIGH,CRITICAL leoni-maintenance-frontend:$(Build.BuildId)
+        displayName: 'Scanner l''image Docker Frontend (Trivy)'
+        continueOnError: true
 
       # ----- SONARCLOUD : ANALYSE & PUBLICATION (fin du stage CI) -----
       - task: SonarCloudAnalyze@3

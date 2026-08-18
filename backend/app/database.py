@@ -3,7 +3,7 @@
 # (models.py, futurs endpoints) puisse s'y connecter de façon cohérente.
 
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
 # URL de connexion : "sqlite:///" + chemin du fichier.
