@@ -3,8 +3,7 @@
 # (models.py, futurs endpoints) puisse s'y connecter de façon cohérente.
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 # URL de connexion : "sqlite:///" + chemin du fichier.
 # Le fichier "leoni_maintenance.db" sera créé automatiquement
