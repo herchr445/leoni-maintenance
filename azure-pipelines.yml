@@ -87,10 +87,6 @@ stages:
         inputs:
           pollingTimeoutSec: '300'
         displayName: 'Publier les résultats SonarCloud'
-        # Non-bloquant : limitation connue liée au compte SonarCloud (lié GitHub)
-        # empêchant l'organisation d'être "bound" nativement à Azure DevOps.
-        # L'analyse s'exécute et le Quality Gate reste consultable manuellement
-        # sur sonarcloud.io/dashboard?id=leoni-maintenance
         continueOnError: true
 
 # ===================================================================
@@ -118,4 +114,25 @@ stages:
             continueOnError: true
 
           - script: |
-              docker run -d --name leoni-backend --restart always -p 8000:8000 -v leoni-backend-data:/app leoni-maintenance-backend:$(Build.BuildI
+              docker run -d --name leoni-backend --restart always -p 8000:8000 -v leoni-backend-data:/app leoni-maintenance-backend:$(Build.BuildId)
+            displayName: 'Déployer le conteneur Backend'
+
+          - script: |
+              ping -n 6 127.0.0.1 >nul
+              curl -f http://localhost:8000/health || exit 1
+            displayName: 'Vérifier la santé du backend (health check)'
+
+          - script: |
+              docker stop leoni-frontend
+              docker rm leoni-frontend
+            displayName: 'Arrêter l''ancien conteneur frontend (si existant)'
+            continueOnError: true
+
+          - script: |
+              docker run -d --name leoni-frontend --restart always -p 8081:80 leoni-maintenance-frontend:$(Build.BuildId)
+            displayName: 'Déployer le conteneur Frontend'
+
+          - script: |
+              ping -n 6 127.0.0.1 >nul
+              curl -f http://localhost:8081 || exit 1
+            displayName: 'Vérifier la santé du frontend (health check)'
