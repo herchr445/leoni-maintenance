@@ -109,7 +109,7 @@ stages:
             continueOnError: true
 
           - script: |
-              docker run -d --name leoni-backend --restart unless-stopped -p 8000:8000 -v leoni-backend-data:/app leoni-maintenance-backend:$(Build.BuildId)
+              docker run -d --name leoni-backend --restart always -p 8000:8000 -v leoni-backend-data:/app leoni-maintenance-backend:$(Build.BuildId)
             displayName: 'Déployer le conteneur Backend'
 
           - script: |
@@ -124,7 +124,7 @@ stages:
             continueOnError: true
 
           - script: |
-              docker run -d --name leoni-frontend --restart unless-stopped -p 8081:80 leoni-maintenance-frontend:$(Build.BuildId)
+              docker run -d --name leoni-frontend --restart always -p 8081:80 leoni-maintenance-frontend:$(Build.BuildId)
             displayName: 'Déployer le conteneur Frontend'
 
           - script: |
