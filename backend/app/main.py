@@ -3,7 +3,7 @@
 from fastapi import (
     Depends,
     FastAPI,
-    HTTPException,  # ← nouvel import à ajouter en haut
+    HTTPException,
 )
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
@@ -50,6 +50,7 @@ def create_ticket(ticket: schemas.TicketCreate, db: Session = Depends(get_db)):
     """
     return crud.create_ticket(db=db, ticket=ticket)
 
+
 @app.get("/api/tickets", response_model=list[schemas.TicketResponse])
 def list_tickets(
     status: str | None = None,
@@ -58,11 +59,22 @@ def list_tickets(
 ):
     """
     Liste tous les tickets, avec filtres optionnels via query params.
-    Exemples : /api/tickets?status=Open
-               /api/tickets?priority=High
-               /api/tickets?status=Open&priority=High
     """
     return crud.get_tickets(db=db, status=status, priority=priority)
+
+
+@app.get("/api/stats", response_model=schemas.StatsResponse)
+def get_stats(db: Session = Depends(get_db)):
+    """
+    Retourne les statistiques globales des tickets pour le dashboard
+    (total, ouverts, en cours, priorité haute, temps moyen de résolution).
+
+    IMPORTANT : cette route doit être définie AVANT /api/tickets/{ticket_id},
+    sinon FastAPI tenterait d'interpréter "stats" comme une valeur de
+    {ticket_id} (qui attend un entier), causant une erreur de validation.
+    """
+    return crud.get_stats(db=db)
+
 
 @app.get("/api/tickets/{ticket_id}", response_model=schemas.TicketResponse)
 def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
@@ -75,6 +87,7 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Ticket not found")
     return db_ticket
 
+
 @app.patch("/api/tickets/{ticket_id}", response_model=schemas.TicketResponse)
 def update_ticket(ticket_id: int, ticket_update: schemas.TicketUpdate, db: Session = Depends(get_db)):
     """
@@ -85,6 +98,8 @@ def update_ticket(ticket_id: int, ticket_update: schemas.TicketUpdate, db: Sessi
     if db_ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found")
     return db_ticket
+
+
 @app.delete("/api/tickets/{ticket_id}", status_code=204)
 def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """

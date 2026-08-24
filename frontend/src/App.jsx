@@ -21,11 +21,11 @@ const PRIORITY_DOT = {
 
 const STATUS_OPTIONS = ["Open", "InProgress", "Resolved", "Closed"];
 
-// Formate l'ID en "WO-0007" façon numéro d'ordre de travail
 const formatWorkOrder = (id) => `WO-${String(id).padStart(4, "0")}`;
 
 function App() {
   const [tickets, setTickets] = useState([]);
+  const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -51,9 +51,24 @@ function App() {
       });
   };
 
+  // Récupère les statistiques globales depuis /api/stats
+  const fetchStats = () => {
+    fetch(`${API_URL}/api/stats`)
+      .then((res) => res.json())
+      .then((data) => setStats(data))
+      .catch(() => setStats(null)); // en cas d'erreur, on n'affiche juste pas les cartes
+  };
+
   useEffect(() => {
     fetchTickets();
+    fetchStats();
   }, []);
+
+  // Rafraîchit les tickets ET les stats ensemble (utilisé après chaque action)
+  const refreshAll = () => {
+    fetchTickets();
+    fetchStats();
+  };
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -76,7 +91,7 @@ function App() {
       })
       .then(() => {
         setFormData({ machine_name: "", description: "", priority: "Medium", assigned_to: "" });
-        fetchTickets();
+        refreshAll();
         setSubmitting(false);
       })
       .catch((err) => {
@@ -95,7 +110,7 @@ function App() {
         if (!res.ok) throw new Error("Erreur lors de la mise à jour");
         return res.json();
       })
-      .then(() => fetchTickets())
+      .then(() => refreshAll())
       .catch((err) => setError("Erreur : " + err.message));
   };
 
@@ -104,7 +119,7 @@ function App() {
     fetch(`${API_URL}/api/tickets/${ticketId}`, { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("Erreur lors de la suppression");
-        fetchTickets();
+        refreshAll();
       })
       .catch((err) => setError("Erreur : " + err.message));
   };
@@ -125,7 +140,7 @@ function App() {
           <div className="px-6 py-5 flex items-center justify-between border-b border-blueprint-700">
             <div>
               <p className="font-display uppercase tracking-[0.2em] text-xs text-blueprint-200">
-                Leoni — Plastivaloire Group
+                Leoni — Wiring Systems
               </p>
               <h1 className="font-display uppercase text-2xl md:text-3xl tracking-wide">
                 Maintenance Ticketing System
@@ -142,7 +157,7 @@ function App() {
           <div className="grid grid-cols-3 divide-x divide-blueprint-700 font-mono text-xs">
             <div className="px-6 py-3">
               <p className="text-blueprint-200 uppercase tracking-widest">Site</p>
-              <p className="text-white mt-1">IPS — Sousse</p>
+              <p className="text-white mt-1">Leoni — Sousse</p>
             </div>
             <div className="px-6 py-3">
               <p className="text-blueprint-200 uppercase tracking-widest">Ligne</p>
@@ -156,6 +171,32 @@ function App() {
             </div>
           </div>
         </header>
+
+        {/* ===== Cartes KPI — vue d'ensemble statistique ===== */}
+        {stats && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="bg-white rounded-sm shadow-sm border border-blueprint-200 border-t-4 border-t-red-signal p-4">
+              <p className="text-steel-400 text-xs uppercase tracking-widest font-mono">Ouverts</p>
+              <p className="font-display text-3xl text-blueprint-900 mt-1">{stats.open_tickets}</p>
+            </div>
+            <div className="bg-white rounded-sm shadow-sm border border-blueprint-200 border-t-4 border-t-amber-signal p-4">
+              <p className="text-steel-400 text-xs uppercase tracking-widest font-mono">En cours</p>
+              <p className="font-display text-3xl text-blueprint-900 mt-1">{stats.in_progress_tickets}</p>
+            </div>
+            <div className="bg-white rounded-sm shadow-sm border border-blueprint-200 border-t-4 border-t-blueprint-700 p-4">
+              <p className="text-steel-400 text-xs uppercase tracking-widest font-mono">Priorité Haute</p>
+              <p className="font-display text-3xl text-blueprint-900 mt-1">{stats.high_priority_tickets}</p>
+            </div>
+            <div className="bg-white rounded-sm shadow-sm border border-blueprint-200 border-t-4 border-t-green-signal p-4">
+              <p className="text-steel-400 text-xs uppercase tracking-widest font-mono">Résolution Moy.</p>
+              <p className="font-display text-3xl text-blueprint-900 mt-1">
+                {stats.avg_resolution_time_hours !== null
+                  ? `${stats.avg_resolution_time_hours}h`
+                  : "—"}
+              </p>
+            </div>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border-l-4 border-red-signal text-red-signal px-4 py-3 rounded-sm mb-6 font-mono text-sm">

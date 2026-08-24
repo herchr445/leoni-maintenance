@@ -78,3 +78,44 @@ def delete_ticket(db: Session, ticket_id: int) -> bool:
     db.delete(db_ticket)
     db.commit()
     return True
+def get_stats(db: Session):
+    """
+    Calcule les statistiques globales des tickets pour le dashboard.
+
+    Retourne :
+    - total_tickets : nombre total de tickets, tous statuts confondus
+    - open_tickets : tickets encore au statut "Open"
+    - in_progress_tickets : tickets au statut "InProgress"
+    - high_priority_tickets : tickets de priorité "High", non fermés
+      (un ticket High déjà Closed n'est plus une urgence active)
+    - avg_resolution_time_hours : temps moyen entre création et clôture,
+      calculé uniquement sur les tickets déjà "Closed"
+    """
+    all_tickets = db.query(models.Ticket).all()
+
+    total = len(all_tickets)
+    open_count = sum(1 for t in all_tickets if t.status == models.TicketStatus.OPEN)
+    in_progress_count = sum(1 for t in all_tickets if t.status == models.TicketStatus.IN_PROGRESS)
+    high_priority_active = sum(
+        1 for t in all_tickets
+        if t.priority == models.TicketPriority.HIGH
+        and t.status != models.TicketStatus.CLOSED
+    )
+
+    closed_tickets = [t for t in all_tickets if t.status == models.TicketStatus.CLOSED]
+    if closed_tickets:
+        durations = [
+            (t.updated_at - t.created_at).total_seconds() / 3600
+            for t in closed_tickets
+        ]
+        avg_resolution_hours = round(sum(durations) / len(durations), 1)
+    else:
+        avg_resolution_hours = None
+
+    return {
+        "total_tickets": total,
+        "open_tickets": open_count,
+        "in_progress_tickets": in_progress_count,
+        "high_priority_tickets": high_priority_active,
+        "avg_resolution_time_hours": avg_resolution_hours,
+    }

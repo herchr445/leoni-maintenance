@@ -264,3 +264,61 @@ def test_delete_ticket_not_found():
     response = client.delete("/api/tickets/999999")
 
     assert response.status_code == 404    
+def test_get_stats_empty_or_with_data():
+    """
+    Vérifie que /api/stats retourne une réponse cohérente et bien formée,
+    peu importe l'état actuel de la base (vide ou avec des tickets).
+    """
+    response = client.get("/api/stats")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert "total_tickets" in data
+    assert "open_tickets" in data
+    assert "in_progress_tickets" in data
+    assert "high_priority_tickets" in data
+    assert "avg_resolution_time_hours" in data
+    assert isinstance(data["total_tickets"], int)
+    assert data["total_tickets"] >= 0
+
+
+def test_get_stats_reflects_created_ticket():
+    """
+    Vérifie que créer un ticket fait bien évoluer les statistiques
+    (le total augmente, le ticket est compté dans "open" par défaut).
+    """
+    before = client.get("/api/stats").json()
+
+    client.post("/api/tickets", json={
+        "machine_name": "Machine Stats Test",
+        "description": "Test pour vérifier les stats",
+        "priority": "High"
+    })
+
+    after = client.get("/api/stats").json()
+
+    assert after["total_tickets"] == before["total_tickets"] + 1
+    assert after["open_tickets"] == before["open_tickets"] + 1
+    assert after["high_priority_tickets"] == before["high_priority_tickets"] + 1
+
+
+def test_get_stats_high_priority_excludes_closed():
+    """
+    Vérifie qu'un ticket High mais déjà Closed n'est PAS compté
+    dans high_priority_tickets (ce n'est plus une urgence active).
+    """
+    create_response = client.post("/api/tickets", json={
+        "machine_name": "Machine High Closed",
+        "description": "Ticket High mais fermé",
+        "priority": "High"
+    })
+    ticket_id = create_response.json()["id"]
+
+    before = client.get("/api/stats").json()["high_priority_tickets"]
+
+    client.patch(f"/api/tickets/{ticket_id}", json={"status": "Closed"})
+
+    after = client.get("/api/stats").json()["high_priority_tickets"]
+
+    assert after == before - 1
+    

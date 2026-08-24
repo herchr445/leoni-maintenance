@@ -51,3 +51,13 @@ class TicketResponse(BaseModel):
     # Permet à Pydantic de lire directement un objet SQLAlchemy
     # (model_config, syntaxe Pydantic v2) au lieu d'un simple dict.
     model_config = ConfigDict(from_attributes=True) 
+
+class StatsResponse(BaseModel):
+    """
+    Structure des statistiques globales retournées par /api/stats.
+    """
+    total_tickets: int
+    open_tickets: int
+    in_progress_tickets: int
+    high_priority_tickets: int
+    avg_resolution_time_hours: float | None  # None si aucun ticket fermé encore
