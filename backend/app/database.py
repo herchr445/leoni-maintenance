@@ -2,13 +2,16 @@
 # Objectif : centraliser la config SQLite pour que tout le reste de l'app
 # (models.py, futurs endpoints) puisse s'y connecter de façon cohérente.
 
+import os
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# URL de connexion : "sqlite:///" + chemin du fichier.
-# Le fichier "leoni_maintenance.db" sera créé automatiquement
-# dans le dossier backend/ au premier lancement de l'app.
-SQLALCHEMY_DATABASE_URL = "sqlite:///./leoni_maintenance.db"
+# En local (développement), la base reste dans le dossier backend/.
+# En conteneur Docker, la variable DATABASE_PATH pointe vers /data/,
+# un dossier séparé du code, pour que le volume Docker ne l'écrase pas.
+DATABASE_PATH = os.getenv("DATABASE_PATH", "./leoni_maintenance.db")
+SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
 
 # Le "moteur" (engine) : gère la connexion technique à la base.
 # check_same_thread=False est nécessaire spécifiquement pour SQLite
@@ -36,4 +39,4 @@ def get_db():
     try:
         yield db
     finally:
-        db.close()  
+        db.close()

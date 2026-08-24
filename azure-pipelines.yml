@@ -40,10 +40,6 @@ stages:
         displayName: 'Vérifier Python'
 
       - script: |
-          findstr /C:"api/stats" backend\app\main.py
-        displayName: 'DEBUG - Vérifier le contenu réel du fichier checkout'
-
-      - script: |
           cd backend
           pip install -r requirements.txt
         displayName: 'Installer les dépendances'
@@ -128,7 +124,7 @@ stages:
             continueOnError: true
 
           - script: |
-              docker run -d --name leoni-backend --restart always -p 8000:8000 -v leoni-backend-data:/app leoni-maintenance-backend:$(Build.BuildId)
+              docker run -d --name leoni-backend --restart always -p 8000:8000 -v leoni-backend-data:/data -e DATABASE_PATH=/data/leoni_maintenance.db leoni-maintenance-backend:$(Build.BuildId)
             displayName: 'Déployer le conteneur Backend'
 
           - script: |
