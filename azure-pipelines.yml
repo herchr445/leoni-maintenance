@@ -40,6 +40,10 @@ stages:
         displayName: 'Vérifier Python'
 
       - script: |
+          findstr /C:"api/stats" backend\app\main.py
+        displayName: 'DEBUG - Vérifier le contenu réel du fichier checkout'
+
+      - script: |
           cd backend
           pip install -r requirements.txt
         displayName: 'Installer les dépendances'
