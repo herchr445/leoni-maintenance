@@ -34,7 +34,7 @@ stages:
           cliProjectName: 'leoni-maintenance'
           cliSources: 'backend'
           extraProperties: |
-            sonar.python.coverage.reportPaths=coverage.xml
+              sonar.python.coverage.reportPaths=backend/coverage.xml
         displayName: 'Préparer l''analyse SonarCloud'
 
       # ----- STAGE 1a : BUILD & TEST -----
