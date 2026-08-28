@@ -33,6 +33,8 @@ stages:
           cliProjectKey: 'leoni-maintenance'
           cliProjectName: 'leoni-maintenance'
           cliSources: 'backend'
+          extraProperties: |
+            sonar.python.coverage.reportPaths=coverage.xml
         displayName: 'Préparer l''analyse SonarCloud'
 
       # ----- STAGE 1a : BUILD & TEST -----
@@ -46,7 +48,7 @@ stages:
 
       - script: |
           cd backend
-          pytest -v --cov=app --cov-report=term-missing
+          pytest -v --cov=app --cov-report=term-missing --cov-report=xml
         displayName: 'Exécuter les tests unitaires et d''intégration'
 
       # ----- STAGE 1b : QUALITÉ & SÉCURITÉ -----
