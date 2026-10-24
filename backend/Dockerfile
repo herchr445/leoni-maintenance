@@ -6,6 +6,15 @@
 # (moins de taille = moins de surface d'attaque pour les scans de sécurité)
 FROM python:3.13-slim
 
+# Utilisateur système NON-ROOT avec un UID/GID FIXE (10001) :
+# - si l'app était compromise, l'attaquant n'aurait pas les droits root ;
+# - un numéro fixe permet de faire correspondre exactement le securityContext
+#   Kubernetes (runAsUser: 10001) et le propriétaire du volume de données.
+# --no-create-home / nologin : compte de service, pas de dossier perso ni de shell.
+RUN groupadd --system --gid 10001 app \
+    && useradd --system --uid 10001 --gid 10001 --no-create-home \
+       --shell /usr/sbin/nologin app
+
 # Dossier de travail à l'intérieur du conteneur
 WORKDIR /app
 
@@ -15,12 +24,30 @@ WORKDIR /app
 # au lieu de tout réinstaller à chaque build.
 COPY requirements.txt .
 
-# Installe les dépendances Python
+# Installe les dépendances Python (encore en root : elles vont dans le système)
 # --no-cache-dir : évite de stocker le cache pip dans l'image (taille réduite)
-RUN pip install --no-cache-dir -r requirements.txt
+# --only-binary :all: : n'accepte QUE des wheels précompilées, jamais de
+#   compilation depuis les sources (pas d'exécution de setup.py au build).
+RUN pip install --no-cache-dir --only-binary :all: -r requirements.txt
 
-# Copie maintenant tout le reste du code de l'application
+# Copie maintenant tout le reste du code de l'application.
+# Le code reste propriété de root, en lecture seule pour l'utilisateur app :
+# l'application ne peut pas modifier son propre code.
 COPY app/ ./app/
+
+# /data : SEUL dossier inscriptible par l'app (base SQLite du déploiement Docker Desktop).
+# Quand un volume nommé NEUF est monté sur /data, Docker reprend ce propriétaire (10001).
+# (Un volume DÉJÀ existant garde son propriétaire actuel → chown unique nécessaire.)
+RUN mkdir -p /data && chown 10001:10001 /data
+
+# Chemin SQLite par défaut dans /data : sans cela, l'app tenterait d'écrire
+# ./leoni_maintenance.db dans /app, non inscriptible → plantage au démarrage.
+# (Le pipeline passe déjà exactement cette valeur avec -e : aucun changement pour lui.)
+ENV DATABASE_PATH=/data/leoni_maintenance.db
+
+# À partir d'ici, tout s'exécute avec l'utilisateur non-root (UID:GID numériques,
+# vérifiables par Kubernetes avec runAsNonRoot)
+USER 10001:10001
 
 # Documente que le conteneur écoute sur le port 8000
 # (n'ouvre pas réellement le port, c'est juste une info/convention)

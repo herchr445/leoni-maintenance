@@ -140,8 +140,10 @@ stages:
             displayName: 'Arrêter l''ancien conteneur frontend (si existant)'
             continueOnError: true
 
+          # Image nginx-unprivileged (non-root) : nginx écoute sur 8080 dans le conteneur.
+          # Le port publié sur le PC reste 8081 → URL et health check inchangés.
           - script: |
-              docker run -d --name leoni-frontend --restart always -p 8081:80 leoni-maintenance-frontend:$(Build.BuildId)
+              docker run -d --name leoni-frontend --restart always -p 8081:8080 leoni-maintenance-frontend:$(Build.BuildId)
             displayName: 'Déployer le conteneur Frontend'
 
           - script: |

@@ -25,14 +25,20 @@ ENV VITE_API_URL=$VITE_API_URL
 COPY . .
 RUN npm run build
 
-# ===== ÉTAPE 2 : Servir les fichiers statiques via nginx =====
-FROM nginx:alpine
+# ===== ÉTAPE 2 : Servir les fichiers statiques via nginx (NON-ROOT) =====
+# nginx-unprivileged : variante officielle de nginx qui tourne avec l'utilisateur
+# "nginx" (UID 101) au lieu de root. Conséquence : il écoute sur 8080, car un
+# processus non-root ne peut pas ouvrir un port < 1024 (comme 80).
+FROM nginxinc/nginx-unprivileged:alpine
+
+# Configuration du site : port 8080 + repli SPA (voir nginx.conf)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copie UNIQUEMENT le résultat du build (dossier dist/) depuis l'étape "build"
 COPY --from=build /app/dist /usr/share/nginx/html
 
-# nginx écoute par défaut sur le port 80
-EXPOSE 80
+# nginx non-root écoute sur 8080 (le pipeline publie donc -p 8081:8080)
+EXPOSE 8080
 
 # Lance nginx au premier plan (nécessaire pour Docker)
 CMD ["nginx", "-g", "daemon off;"]
