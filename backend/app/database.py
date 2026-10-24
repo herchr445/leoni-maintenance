@@ -16,8 +16,11 @@ def get_database_url() -> str:
     """
     Choisit l'URL de connexion à partir des variables d'environnement.
 
-    - DATABASE_URL définie → utilisée telle quelle
-      (ex : postgresql+psycopg://user:motdepasse@hote:5432/base).
+    - DATABASE_URL définie → utilisée telle quelle. Format attendu :
+      schéma "postgresql+psycopg", puis utilisateur, mot de passe, hôte, port
+      et nom de la base. Le mot de passe n'est JAMAIS écrit dans le code : la
+      variable est fournie par l'environnement (fichier .env local ignoré par
+      Git pour docker compose, Secret Kubernetes dans le cluster).
     - Sinon → SQLite sur le fichier DATABASE_PATH :
       en local, la base reste dans backend/ (./leoni_maintenance.db) ;
       en conteneur Docker, DATABASE_PATH pointe vers /data/, un dossier

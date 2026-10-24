@@ -33,10 +33,12 @@ def test_get_db_yields_working_session_and_closes_it():
 
 def test_database_url_takes_priority_when_set(monkeypatch):
     """DATABASE_URL définie → utilisée telle quelle (cas Kubernetes / compose)."""
-    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://user:pass@db:5432/leoni")
+    # URL volontairement SANS utilisateur ni mot de passe : le test ne vérifie
+    # que le choix de l'URL, aucun identifiant n'a sa place dans le code.
+    monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://db:5432/leoni")
     monkeypatch.setenv("DATABASE_PATH", "/data/ignored.db")  # doit être ignorée
 
-    assert get_database_url() == "postgresql+psycopg://user:pass@db:5432/leoni"
+    assert get_database_url() == "postgresql+psycopg://db:5432/leoni"
 
 
 def test_database_url_falls_back_to_sqlite_database_path(monkeypatch):
@@ -71,7 +73,7 @@ def test_engine_options_postgresql_uses_pre_ping_and_psycopg_driver():
     driver psycopg est bien installé (sinon ImportError ici → CI en échec
     si psycopg manquait dans requirements.txt).
     """
-    url = "postgresql+psycopg://user:pass@localhost:5432/leoni"
+    url = "postgresql+psycopg://localhost:5432/leoni"  # sans identifiants (aucune connexion)
     options = engine_options(url)
 
     assert options == {"pool_pre_ping": True}
