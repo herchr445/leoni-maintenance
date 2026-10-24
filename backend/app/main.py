@@ -10,7 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app import crud, schemas
+from app import crud, models, schemas
 from app.database import Base, engine, get_db
 
 Base.metadata.create_all(bind=engine)
@@ -74,8 +74,11 @@ def create_ticket(ticket: schemas.TicketCreate, db: Session = Depends(get_db)):
 
 @app.get("/api/tickets", response_model=list[schemas.TicketResponse])
 def list_tickets(
-    status: str | None = None,
-    priority: str | None = None,
+    # Typés avec les Enums du modèle : FastAPI valide la valeur AVANT toute requête SQL.
+    # Une valeur inconnue (ex : ?status=Foo) → 422 automatique, identique sur SQLite
+    # et PostgreSQL (sinon PostgreSQL rejetait la valeur de son type ENUM natif → 500).
+    status: models.TicketStatus | None = None,
+    priority: models.TicketPriority | None = None,
     db: Session = Depends(get_db)
 ):
     """

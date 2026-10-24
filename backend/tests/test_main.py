@@ -186,17 +186,23 @@ def test_create_ticket_default_priority():
 
 def test_list_tickets_with_nonexistent_status_filter():
     """
-    Cas limite : filtrer par un statut qui n'existe dans aucun ticket
-    doit retourner une liste vide, pas une erreur.
+    Cas d'erreur : filtrer par un statut qui n'existe pas dans l'Enum
+    (ex : "Foo") doit être rejeté avec 422 par la validation FastAPI,
+    avant toute requête SQL — même comportement sur SQLite et PostgreSQL.
     """
-    response = client.get("/api/tickets?status=Closed")
+    response = client.get("/api/tickets?status=Foo")
 
-    assert response.status_code == 200
-    data = response.json()
-    assert isinstance(data, list)
-    # Tous les tickets créés dans nos tests précédents sont "Open",
-    # donc filtrer par "Closed" doit retourner une liste vide
-    assert len(data) == 0
+    assert response.status_code == 422
+
+
+def test_list_tickets_with_invalid_priority_filter():
+    """
+    Cas d'erreur : même règle pour le filtre priority — une valeur hors
+    de Low/Medium/High doit être rejetée avec 422.
+    """
+    response = client.get("/api/tickets?priority=Urgentissime")
+
+    assert response.status_code == 422
 
 
 def test_list_tickets_with_priority_filter():

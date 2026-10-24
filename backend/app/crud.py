@@ -21,7 +21,11 @@ def create_ticket(db: Session, ticket: schemas.TicketCreate) -> models.Ticket:
     db.refresh(db_ticket)
     return db_ticket
 
-def get_tickets(db: Session, status: str | None = None, priority: str | None = None):
+def get_tickets(
+    db: Session,
+    status: models.TicketStatus | None = None,
+    priority: models.TicketPriority | None = None,
+):
     """
     Récupère la liste des tickets, avec filtres optionnels.
 
