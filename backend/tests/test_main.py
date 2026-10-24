@@ -58,28 +58,51 @@ def test_create_ticket():
     assert "created_at" in data   
 def test_list_tickets():
     """
-    Vérifie que GET /api/tickets retourne bien une liste,
-    contenant au moins le ticket créé dans le test précédent.
+    Vérifie que GET /api/tickets retourne bien une liste
+    contenant le ticket créé dans CE test (la base est vide au départ,
+    chaque test étant isolé par la fixture de conftest.py).
     """
+    client.post("/api/tickets", json={
+        "machine_name": "Machine Liste",
+        "description": "Ticket pour le test de liste",
+        "priority": "Low"
+    })
+
     response = client.get("/api/tickets")
 
     assert response.status_code == 200
     data = response.json()
     assert isinstance(data, list)  # la réponse doit être une liste
-    assert len(data) >= 1  # au moins 1 ticket (celui créé avant)
+    assert len(data) == 1  # exactement le ticket créé ci-dessus
+    assert data[0]["machine_name"] == "Machine Liste"
 
 
 def test_list_tickets_with_status_filter():
     """
     Vérifie que le filtre par statut fonctionne :
-    tous les tickets retournés doivent avoir le statut demandé.
+    seuls les tickets ayant le statut demandé sont retournés, et tous le sont.
     """
+    # Prépare 3 tickets (tous "Open" à la création), puis en passe
+    # un en "InProgress" et un en "Closed" → statuts différents.
+    ids = []
+    for name in ("Machine Open", "Machine InProgress", "Machine Closed"):
+        created = client.post("/api/tickets", json={
+            "machine_name": name,
+            "description": "Test filtre statut",
+            "priority": "Medium"
+        })
+        ids.append(created.json()["id"])
+    client.patch(f"/api/tickets/{ids[1]}", json={"status": "InProgress"})
+    client.patch(f"/api/tickets/{ids[2]}", json={"status": "Closed"})
+
     response = client.get("/api/tickets?status=Open")
 
     assert response.status_code == 200
     data = response.json()
-    for ticket in data:
-        assert ticket["status"] == "Open"    
+    # Exactement 1 ticket : celui resté "Open" (les 2 autres sont exclus)
+    assert len(data) == 1
+    assert data[0]["id"] == ids[0]
+    assert data[0]["status"] == "Open"
 def test_create_ticket_missing_required_field():
     """
     Cas d'erreur : machine_name est obligatoire mais absent.
@@ -137,14 +160,33 @@ def test_list_tickets_with_nonexistent_status_filter():
 def test_list_tickets_with_priority_filter():
     """
     Vérifie spécifiquement que le filtre priority fonctionne
-    (pas seulement status, qu'on avait déjà testé).
+    (pas seulement status, qu'on avait déjà testé) : seuls les tickets
+    de la priorité demandée sont retournés, et tous le sont.
     """
+    # Prépare 4 tickets de priorités différentes, dont 2 en "High"
+    high_ids = set()
+    for name, priority in (
+        ("Machine High 1", "High"),
+        ("Machine High 2", "High"),
+        ("Machine Low", "Low"),
+        ("Machine Medium", "Medium"),
+    ):
+        created = client.post("/api/tickets", json={
+            "machine_name": name,
+            "description": "Test filtre priorité",
+            "priority": priority
+        })
+        if priority == "High":
+            high_ids.add(created.json()["id"])
+
     response = client.get("/api/tickets?priority=High")
 
     assert response.status_code == 200
     data = response.json()
-    for ticket in data:
-        assert ticket["priority"] == "High"        
+    # Exactement les 2 tickets "High", ni plus ni moins (Low et Medium exclus)
+    assert len(data) == 2
+    assert {ticket["id"] for ticket in data} == high_ids
+    assert all(ticket["priority"] == "High" for ticket in data)
 def test_get_ticket_found():
     """
     Cas normal : récupérer un ticket existant par son ID.
