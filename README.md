@@ -7,6 +7,7 @@ Application de gestion de tickets de maintenance industrielle, développée dura
 - [Fonctionnalités](#fonctionnalités)
 - [Stack technique](#stack-technique)
 - [Architecture](#architecture)
+- [Base de données, santé et sécurité des conteneurs](#base-de-données-santé-et-sécurité-des-conteneurs)
 - [Pipeline CI/CD](#pipeline-cicd)
 - [Lancer le projet en local](#lancer-le-projet-en-local)
 - [Tests](#tests)
@@ -16,7 +17,7 @@ Application de gestion de tickets de maintenance industrielle, développée dura
 
 - Création, consultation, mise à jour et suppression de tickets de maintenance (CRUD complet)
 - Suivi du statut (Open / InProgress / Resolved / Closed) et de la priorité (Low / Medium / High)
-- Filtrage des tickets par statut et par priorité
+- Filtrage des tickets par statut et par priorité (valeur invalide → erreur 422)
 - Tableau de bord statistique en temps réel (tickets ouverts, en cours, priorité haute, délai moyen de résolution)
 - Interface visuelle sur mesure, inspirée des cartouches de plans techniques industriels
 
@@ -24,29 +25,36 @@ Application de gestion de tickets de maintenance industrielle, développée dura
 
 | Composant | Technologies |
 |---|---|
-| Backend | Python 3.13, FastAPI, SQLAlchemy, SQLite, Pydantic |
+| Backend | Python 3.13, FastAPI, SQLAlchemy, Pydantic |
+| Base de données | SQLite (par défaut) · PostgreSQL (via `DATABASE_URL`) |
 | Frontend | React, Vite, Tailwind CSS |
 | Tests | pytest, pytest-cov |
-| Conteneurisation | Docker (build multi-étapes pour le frontend) |
+| Conteneurisation | Docker (images non-root, build multi-étapes pour le frontend), Docker Compose |
 | CI/CD | Azure DevOps Pipelines, agent self-hosted |
 | Qualité & Sécurité | Ruff · Bandit · Gitleaks · Trivy · SonarCloud |
 
 ## Architecture
 
-\`\`\`
-┌─────────────┐      HTTP/REST      ┌──────────────┐      SQLAlchemy      ┌──────────┐
-│   React     │ ──────────────────▶ │   FastAPI    │ ───────────────────▶ │  SQLite  │
-│  (nginx)    │                     │   (Python)   │                      │          │
-└─────────────┘                     └──────────────┘                      └──────────┘
-   Conteneur                           Conteneur                       Volume Docker
-   Docker                              Docker                          (persistant)
-\`\`\`
+```
+┌─────────────┐      HTTP/REST      ┌──────────────┐      SQLAlchemy      ┌──────────────┐
+│   React     │ ──────────────────▶ │   FastAPI    │ ───────────────────▶ │  SQLite  ou  │
+│  (nginx)    │                     │   (Python)   │                      │  PostgreSQL  │
+└─────────────┘                     └──────────────┘                      └──────────────┘
+   Conteneur                           Conteneur                          Volume Docker
+   Docker                              Docker                             (persistant)
+```
 
 Les deux services sont conteneurisés indépendamment et communiquent via une API REST. La base de données est isolée dans un volume Docker dédié, séparé du code applicatif, garantissant la persistance des données entre chaque déploiement.
 
+## Base de données, santé et sécurité des conteneurs
+
+- **Deux bases supportées** : si la variable `DATABASE_URL` est définie (ex. `postgresql+psycopg://...`), le backend utilise PostgreSQL ; sinon il garde SQLite (fichier `DATABASE_PATH`). Le déploiement Azure utilise SQLite ; PostgreSQL sert à la pile Docker Compose locale.
+- **Deux endpoints de santé** : `/health` (liveness — le processus répond, sans toucher la base) et `/ready` (readiness — exécute `SELECT 1`, renvoie `503` si la base est injoignable).
+- **Images non-root** : le backend tourne avec l'utilisateur `app` (UID 10001, seul `/data` est inscriptible, code en lecture seule) et le frontend avec `nginx-unprivileged` (UID 101, port 8080).
+
 ## Pipeline CI/CD
 
-Le pipeline (\`azure-pipelines.yml\`) se déclenche automatiquement à chaque push et se déroule en deux phases :
+Le pipeline (`azure-pipelines.yml`) se déclenche automatiquement à chaque push et se déroule en deux phases :
 
 **Intégration Continue (CI)**
 1. Préparation de l'analyse SonarCloud
@@ -71,39 +79,47 @@ L'exécution s'effectue sur un **agent self-hosted**, configuré pour redémarre
 Python 3.13, Node.js 20+, Docker Desktop
 
 ### Backend
-\`\`\`bash
+```bash
 cd backend
 python -m venv venv
-venv\\Scripts\\activate        # Windows
+venv\Scripts\activate        # Windows
 pip install -r requirements.txt
 uvicorn app.main:app --reload
-\`\`\`
-L'API est accessible sur \`http://127.0.0.1:8000\`, documentation interactive sur \`/docs\`.
+```
+L'API est accessible sur `http://127.0.0.1:8000`, documentation interactive sur `/docs`.
 
 ### Frontend
-\`\`\`bash
+```bash
 cd frontend
 npm install
 npm run dev
-\`\`\`
-L'interface est accessible sur \`http://localhost:5173\`.
+```
+L'interface est accessible sur `http://localhost:5173` (l'URL de l'API vient de `frontend/.env.development`).
 
 ### Avec Docker
-\`\`\`bash
+```bash
 docker build -t leoni-maintenance-backend ./backend
 docker build -t leoni-maintenance-frontend ./frontend
-docker run -d -p 8000:8000 leoni-maintenance-backend
-docker run -d -p 8081:80 leoni-maintenance-frontend
-\`\`\`
+docker run -d -p 8000:8000 -v leoni-data:/data leoni-maintenance-backend
+docker run -d -p 8081:8080 leoni-maintenance-frontend
+```
+Interface sur `http://localhost:8081`, API sur `http://localhost:8000`. Le frontend non-root écoute sur 8080 dans le conteneur.
+
+### Avec PostgreSQL (Docker Compose)
+```bash
+cp .env.example .env          # puis remplacer le mot de passe dans .env
+docker compose up -d --build
+```
+Backend sur `http://localhost:8001` (`/ready` vérifie la connexion à PostgreSQL), PostgreSQL sur le port `5433`. Arrêt : `docker compose down` (les données restent dans le volume).
 
 ## Tests
 
-\`\`\`bash
+```bash
 cd backend
 pytest -v --cov=app --cov-report=term-missing
-\`\`\`
+```
 
-20 tests automatisés (unitaires et d'intégration), 100% de couverture du code applicatif.
+30 tests automatisés (unitaires et d'intégration), 100% de couverture du code applicatif. Chaque test s'exécute sur une base SQLite en mémoire, vide au départ : aucun test ne dépend de l'ordre d'exécution ni des données de développement.
 
 ## Qualité et sécurité
 
