@@ -28,7 +28,10 @@ COPY requirements.txt .
 # --no-cache-dir : évite de stocker le cache pip dans l'image (taille réduite)
 # --only-binary :all: : n'accepte QUE des wheels précompilées, jamais de
 #   compilation depuis les sources (pas d'exécution de setup.py au build).
-RUN pip install --no-cache-dir --only-binary :all: -r requirements.txt
+# --require-hashes : chaque fichier téléchargé doit correspondre à une empreinte
+#   SHA-256 de requirements.txt (généré par pip-compile depuis requirements.in) ;
+#   un paquet altéré ou substitué sur le dépôt est refusé.
+RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
 
 # Copie maintenant tout le reste du code de l'application.
 # Le code reste propriété de root, en lecture seule pour l'utilisateur app :
