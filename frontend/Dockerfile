@@ -12,6 +12,15 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm install
 
+# URL de l'API, figée dans le JavaScript par Vite pendant "npm run build".
+# - Valeur par défaut = celle du déploiement Azure (frontend :8081 → backend :8000),
+#   donc le pipeline (docker build sans argument) produit exactement l'image d'avant.
+# - Image Kubernetes : docker build --build-arg VITE_API_URL="" → URLs relatives (/api/...).
+# ARG n'existe que pendant le build ; ENV la rend visible au processus "npm run build"
+# (et une variable d'environnement est prioritaire sur les fichiers .env de Vite).
+ARG VITE_API_URL=http://127.0.0.1:8000
+ENV VITE_API_URL=$VITE_API_URL
+
 # Copie le reste du code et lance le build
 COPY . .
 RUN npm run build

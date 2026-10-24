@@ -4,7 +4,12 @@
 
 import { useState, useEffect } from "react";
 
-const API_URL = "http://127.0.0.1:8000";
+// URL de l'API, injectée par Vite AU MOMENT DU BUILD (pas au démarrage du conteneur) :
+// - npm run dev        → frontend/.env.development (http://127.0.0.1:8000) ;
+// - image Docker Azure → valeur par défaut de l'ARG du Dockerfile (http://127.0.0.1:8000) ;
+// - image Kubernetes   → VITE_API_URL="" → URLs relatives (/api/...) servies via l'Ingress.
+// "??" ne remplace que si la variable est absente : une chaîne vide reste vide (= relatif).
+const API_URL = import.meta.env.VITE_API_URL ?? "";
 
 const STATUS_STYLES = {
   Open: "border-l-4 border-red-signal bg-red-50 text-red-signal",
@@ -213,7 +218,7 @@ function App() {
             <h2 className="font-display uppercase tracking-wide text-blueprint-900 text-lg">
               Nouvel ordre de travail
             </h2>
-            <p className="text-steel-400 text-sm">Signaler un problème sur une machine demo live</p>
+            <p className="text-steel-400 text-sm">Signaler un problème sur une machine</p>
           </div>
           <div className="px-6 pb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
             <input
