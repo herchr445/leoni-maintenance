@@ -297,13 +297,13 @@ def test_update_ticket_success():
 
     response = client.patch(f"/api/tickets/{ticket_id}", json={
         "status": "InProgress",
-        "assigned_to": "Karim"
+        "assigned_to": "Technicien A"
     })
 
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "InProgress"
-    assert data["assigned_to"] == "Karim"
+    assert data["assigned_to"] == "Technicien A"
     # Vérifie que les champs NON envoyés sont restés inchangés
     assert data["machine_name"] == "Machine E"
     assert data["description"] == "Description originale"
@@ -330,7 +330,7 @@ def test_update_ticket_partial_single_field():
         "machine_name": "Machine F",
         "description": "Test single field update",
         "priority": "High",
-        "assigned_to": "Sami"
+        "assigned_to": "Technicien B"
     })
     ticket_id = create_response.json()["id"]
 
@@ -341,7 +341,7 @@ def test_update_ticket_partial_single_field():
     assert response.status_code == 200
     data = response.json()
     assert data["status"] == "Resolved"
-    assert data["assigned_to"] == "Sami"  # doit rester inchangé
+    assert data["assigned_to"] == "Technicien B"  # doit rester inchangé
     assert data["priority"] == "High"  # doit rester inchangé    
 
 def test_delete_ticket_success():
