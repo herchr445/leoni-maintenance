@@ -1,25 +1,56 @@
 # database.py — Configuration de la connexion à la base de données
-# Objectif : centraliser la config SQLite pour que tout le reste de l'app
-# (models.py, futurs endpoints) puisse s'y connecter de façon cohérente.
+# Objectif : centraliser la config de la base pour que tout le reste de l'app
+# (models.py, endpoints) puisse s'y connecter de façon cohérente.
+# Deux bases possibles :
+# - PostgreSQL si la variable DATABASE_URL est définie (Kubernetes, docker compose) ;
+# - SQLite sinon (comportement historique : tests, pipeline Azure, Docker Desktop).
 
 import os
 
 from sqlalchemy import create_engine
+from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# En local (développement), la base reste dans le dossier backend/.
-# En conteneur Docker, la variable DATABASE_PATH pointe vers /data/,
-# un dossier séparé du code, pour que le volume Docker ne l'écrase pas.
-DATABASE_PATH = os.getenv("DATABASE_PATH", "./leoni_maintenance.db")
-SQLALCHEMY_DATABASE_URL = f"sqlite:///{DATABASE_PATH}"
+
+def get_database_url() -> str:
+    """
+    Choisit l'URL de connexion à partir des variables d'environnement.
+
+    - DATABASE_URL définie → utilisée telle quelle
+      (ex : postgresql+psycopg://user:motdepasse@hote:5432/base).
+    - Sinon → SQLite sur le fichier DATABASE_PATH :
+      en local, la base reste dans backend/ (./leoni_maintenance.db) ;
+      en conteneur Docker, DATABASE_PATH pointe vers /data/, un dossier
+      séparé du code, pour que le volume Docker ne l'écrase pas.
+    """
+    database_url = os.getenv("DATABASE_URL")
+    if database_url:
+        return database_url
+    database_path = os.getenv("DATABASE_PATH", "./leoni_maintenance.db")
+    return f"sqlite:///{database_path}"
+
+
+def engine_options(database_url: str) -> dict:
+    """
+    Options du moteur SQLAlchemy adaptées au type de base.
+
+    - SQLite : check_same_thread=False est nécessaire car FastAPI peut traiter
+      les requêtes dans des threads différents, ce que SQLite interdit par défaut.
+      (Cet argument est propre à SQLite : psycopg le refuse et planterait.)
+    - PostgreSQL : pool_pre_ping=True teste chaque connexion du pool avant de
+      l'utiliser → l'app survit à un redémarrage de PostgreSQL au lieu de
+      renvoyer des erreurs sur des connexions mortes.
+    """
+    # make_url().get_backend_name() lit le type de base dans l'URL ("sqlite", "postgresql"...)
+    if make_url(database_url).get_backend_name() == "sqlite":
+        return {"connect_args": {"check_same_thread": False}}
+    return {"pool_pre_ping": True}
+
+
+SQLALCHEMY_DATABASE_URL = get_database_url()
 
 # Le "moteur" (engine) : gère la connexion technique à la base.
-# check_same_thread=False est nécessaire spécifiquement pour SQLite
-# avec FastAPI, car FastAPI peut gérer plusieurs requêtes dans des
-# threads différents, ce que SQLite interdit par défaut.
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False}
-)
+engine = create_engine(SQLALCHEMY_DATABASE_URL, **engine_options(SQLALCHEMY_DATABASE_URL))
 
 # Fabrique de sessions : chaque requête API va créer sa propre
 # session via SessionLocal(), l'utiliser, puis la fermer.

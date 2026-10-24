@@ -4,7 +4,10 @@
 # ni de tester à la main dans un navigateur.
 
 from fastapi.testclient import TestClient  # Permet de simuler des requêtes HTTP
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
+from app.database import get_db
 from app.main import app  # Importe l'application FastAPI qu'on veut tester
 
 # Crée un client de test lié à notre app.
@@ -34,6 +37,45 @@ def test_root():
 
     assert response.status_code == 200
     assert response.json() == {"message": "Leoni Maintenance API is running"}
+
+
+def test_ready_when_database_ok():
+    """
+    Cas normal : la base répond au SELECT 1 → /ready renvoie 200 "ready".
+    """
+    response = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready"}
+
+
+def test_ready_returns_503_when_database_unreachable(tmp_path):
+    """
+    Cas d'erreur : base injoignable → /ready doit renvoyer 503 (pas planter en 500).
+    Panne RÉELLE, sans mock : un fichier SQLite dans un dossier qui n'existe pas
+    ne peut pas être ouvert → SQLAlchemy lève une OperationalError.
+    """
+    missing_db = (tmp_path / "dossier_inexistant" / "leoni.db").as_posix()
+    broken_engine = create_engine(f"sqlite:///{missing_db}")
+    BrokenSession = sessionmaker(bind=broken_engine)
+
+    def broken_get_db():
+        # Même forme que get_db(), mais sur la base injoignable
+        db = BrokenSession()
+        try:
+            yield db
+        finally:
+            db.close()
+
+    # Remplace la base de test de conftest.py pour CE test uniquement
+    # (la fixture isolated_db vide dependency_overrides après chaque test)
+    app.dependency_overrides[get_db] = broken_get_db
+
+    response = client.get("/ready")
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Database not ready"
+    broken_engine.dispose()
 def test_create_ticket():
     """
     Vérifie que POST /api/tickets crée bien un ticket avec :

@@ -1,0 +1,62 @@
+# docker-compose.yml — Pile de TEST LOCALE : backend FastAPI + PostgreSQL
+# Objectif : vérifier le backend sur PostgreSQL (comme dans Kubernetes) sans
+# toucher au déploiement Azure DevOps qui tourne en parallèle.
+#
+# Cohabitation avec le déploiement Azure (leoni-backend :8000, leoni-frontend :8081) :
+# - nom de projet, noms de conteneurs, image et volume DIFFÉRENTS (préfixe leoni-dev) ;
+# - ports hôte DIFFÉRENTS : 8001 (backend) et 5433 (PostgreSQL) ;
+# - aucune politique de redémarrage : la pile ne revient pas seule après un reboot.
+#
+# Utilisation (depuis la racine du dépôt) :
+#   1. copier .env.example en .env et y mettre un vrai mot de passe (.env n'est jamais commité)
+#   2. docker compose up -d --build
+#   3. docker compose down          (garde les données ; "down -v" les supprime)
+
+# Nom du projet compose : préfixe du réseau et du volume (leoni-dev_default, leoni-dev_pgdata)
+name: leoni-dev
+
+services:
+  db:
+    # Image officielle PostgreSQL 16, variante Alpine (légère)
+    image: postgres:16-alpine
+    container_name: leoni-dev-postgres
+    environment:
+      # Valeurs lues dans le fichier .env (même dossier que ce fichier).
+      # ":?" = compose s'arrête avec ce message si la variable est absente.
+      POSTGRES_USER: ${POSTGRES_USER:?définir POSTGRES_USER dans .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?définir POSTGRES_PASSWORD dans .env}
+      POSTGRES_DB: ${POSTGRES_DB:?définir POSTGRES_DB dans .env}
+    ports:
+      # 5433 sur le PC → 5432 dans le conteneur (accès optionnel depuis un client SQL)
+      - "5433:5432"
+    volumes:
+      # Volume nommé : les données survivent à l'arrêt/suppression du conteneur
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # pg_isready : PostgreSQL accepte-t-il les connexions ?
+      # "$$" = un vrai "$" passé au shell du conteneur (pas interprété par compose)
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    # Même Dockerfile que le pipeline Azure, mais image avec un nom propre à cette pile
+    build: ./backend
+    image: leoni-dev-backend:local
+    container_name: leoni-dev-backend
+    environment:
+      # DATABASE_URL définie → database.py utilise PostgreSQL au lieu de SQLite.
+      # "db" = nom du service ci-dessus, résolu par le DNS interne de compose.
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+    ports:
+      # 8001 sur le PC → 8000 dans le conteneur (8000 reste au backend Azure)
+      - "8001:8000"
+    depends_on:
+      db:
+        # Attend que le healthcheck de PostgreSQL soit vert avant de démarrer le backend
+        condition: service_healthy
+
+volumes:
+  # Volume des données PostgreSQL (nom réel : leoni-dev_pgdata)
+  pgdata:

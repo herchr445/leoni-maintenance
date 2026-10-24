@@ -12,6 +12,9 @@ import os
 # On écrase volontairement toute valeur existante : les tests ne doivent
 # jamais toucher une vraie base, même si DATABASE_PATH est défini dans le shell.
 os.environ["DATABASE_PATH"] = ":memory:"
+# Même logique pour PostgreSQL : si DATABASE_URL était définie dans le shell,
+# l'app s'y connecterait. On la retire pour garantir SQLite en mémoire.
+os.environ.pop("DATABASE_URL", None)
 
 # Les imports ci-dessous sont volontairement placés APRÈS la variable d'env.
 import pytest

@@ -6,6 +6,8 @@ from fastapi import (
     HTTPException,
 )
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import crud, schemas
@@ -31,8 +33,27 @@ app.add_middleware(
 def health_check():
     """
     Endpoint de vérification de santé ("health check").
+    Liveness pure : ne touche PAS la base. Répond tant que le processus vit
+    (utilisé par le health check du pipeline et la livenessProbe Kubernetes).
     """
     return {"status": "ok"}
+
+
+@app.get("/ready")
+def readiness_check(db: Session = Depends(get_db)):
+    """
+    Endpoint de disponibilité ("readiness") : l'API est-elle prête à servir ?
+    Exécute un SELECT 1 sur la base :
+    - succès → 200 {"status": "ready"} ;
+    - base injoignable ou en erreur → 503, pour que Kubernetes retire le pod
+      du trafic le temps que la base revienne (sans le redémarrer).
+    """
+    try:
+        db.execute(text("SELECT 1"))
+    except SQLAlchemyError as exc:
+        # SQLAlchemyError couvre toutes les erreurs de connexion/requête SQLAlchemy
+        raise HTTPException(status_code=503, detail="Database not ready") from exc
+    return {"status": "ready"}
 
 
 @app.get("/")

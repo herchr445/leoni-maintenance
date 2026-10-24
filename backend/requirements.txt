@@ -17,6 +17,8 @@ markdown-it-py==4.2.0
 mdurl==0.1.2
 packaging==26.3
 pluggy==1.6.0
+psycopg==3.3.6
+psycopg-binary==3.3.6
 pydantic==2.13.4
 pydantic_core==2.46.4
 Pygments==2.20.0
@@ -31,4 +33,5 @@ starlette==1.6.0
 stevedore==5.9.0
 typing-inspection==0.4.3
 typing_extensions==4.16.0
+tzdata==2026.5
 uvicorn==0.52.1
