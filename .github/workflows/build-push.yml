@@ -1,0 +1,208 @@
+# build-push.yml — CI GitHub : tests, analyse SonarCloud, images Docker pour Kubernetes
+#
+# Rôle : à chaque push sur main (dépôt GitHub), tester le backend, l'analyser avec
+# SonarCloud, puis construire, scanner et publier les images dans GitHub Container
+# Registry (GHCR), d'où le cluster Kubernetes les téléchargera.
+# Le pipeline Azure DevOps (azure-pipelines.yml) reste inchangé et indépendant :
+# il continue de déployer sur Docker Desktop.
+#
+# Sécurité de la chaîne d'approvisionnement : chaque action est épinglée sur le SHA
+# complet d'un commit (et pas sur un tag, qui peut être déplacé vers un autre code).
+# Le commentaire en fin de ligne indique la version correspondante.
+
+name: Build and push images
+
+on:
+  push:
+    branches: [main]
+    # Pas d'exécution inutile quand seuls les manifestes de déploiement ou la
+    # documentation changent (et, en phase 6, pas de boucle sur le commit de tag).
+    paths-ignore:
+      - "deploy/**"
+      - "docs/**"
+  # Relance manuelle possible depuis l'onglet Actions
+  workflow_dispatch:
+
+# Moindre privilège : lecture seule par défaut ; seul le job build reçoit
+# packages: write. contents: write ne sera ajouté qu'en phase 6 (commit du tag).
+permissions:
+  contents: read
+
+# Un seul run à la fois par branche, dans l'ordre (pas d'annulation en cours de push)
+concurrency:
+  group: build-push-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  # Préfixe des images dans GHCR (en minuscules, exigé par le registre)
+  IMAGE_PREFIX: ghcr.io/herchr445
+  # Organisation et projet SonarCloud de l'analyse GitHub
+  SONAR_ORGANIZATION: herchr445
+  SONAR_PROJECT_KEY: herchr445_leoni-maintenance
+
+jobs:
+  # ===================================================================
+  # JOB 1 : tests, qualité, sécurité du code, analyse SonarCloud
+  # ===================================================================
+  test:
+    name: Tests, quality and SonarCloud
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Historique complet : SonarCloud en a besoin pour le "nouveau code" et le blame
+          fetch-depth: 0
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+          # Cache pip indexé sur le fichier verrouillé (avec hashes)
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies (hash-checked)
+        working-directory: backend
+        # --require-hashes : chaque paquet doit correspondre à son empreinte SHA-256
+        run: pip install --require-hashes -r requirements.txt
+
+      - name: Run tests with coverage
+        working-directory: backend
+        # coverage.xml est lu ensuite par SonarCloud
+        run: pytest -v --cov=app --cov-report=term-missing --cov-report=xml
+
+      - name: Lint (Ruff)
+        working-directory: backend
+        run: ruff check .
+
+      - name: Security scan of the code (Bandit)
+        working-directory: backend
+        run: bandit -r app/
+
+      - name: SonarCloud analysis
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        env:
+          # Jeton stocké dans les secrets du dépôt GitHub (jamais dans le code)
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io
+        with:
+          # Configuration passée ICI et pas dans sonar-project.properties :
+          # ce fichier serait aussi lu par le scanner du pipeline Azure DevOps
+          # et casserait son analyse (tests indexés deux fois).
+          args: >
+            -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
+            -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
+            -Dsonar.sources=backend/app,frontend/src
+            -Dsonar.tests=backend/tests
+            -Dsonar.python.version=3.13
+            -Dsonar.python.coverage.reportPaths=backend/coverage.xml
+
+  # ===================================================================
+  # JOB 2 : images Docker → scan Trivy → publication dans GHCR
+  # ===================================================================
+  build:
+    name: Build, scan and push images
+    needs: test
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # Nécessaire pour publier dans GHCR avec le GITHUB_TOKEN du run
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Compute image tag (short commit SHA)
+        id: meta
+        # Tag = 7 premiers caractères du SHA : traçabilité exacte image ↔ commit.
+        # Jamais "latest" : Kubernetes doit déployer une version précise et immuable.
+        run: echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          # Jeton éphémère fourni par GitHub pour ce run (aucun secret à créer)
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # ----- Backend -----
+      - name: Build backend image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./backend
+          # load: image chargée dans le Docker local du runner pour la scanner AVANT de la publier
+          load: true
+          push: false
+          tags: ${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}
+          # Relie le paquet GHCR au dépôt (affichage et héritage des droits)
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Scan backend image (Trivy, non-blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        # Non bloquant, comme dans Azure DevOps : la plupart des CVE viennent de
+        # l'image de base et n'ont pas encore de correctif. Le rapport reste visible
+        # dans les logs ; les CVE de NOS dépendances sont corrigées par commit.
+        continue-on-error: true
+        with:
+          version: v0.74.0
+          image-ref: ${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      - name: Push backend image
+        run: docker push "${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}"
+
+      # ----- Frontend -----
+      - name: Build frontend image (relative API URL for Kubernetes)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ./frontend
+          load: true
+          push: false
+          # VITE_API_URL vide → le JavaScript appelle /api/... (même adresse que
+          # le frontend), routé vers le backend par l'Ingress du cluster.
+          build-args: |
+            VITE_API_URL=
+          tags: ${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Check frontend uses relative API URLs
+        # Garde-fou : l'image Kubernetes ne doit contenir AUCUNE URL d'API absolue
+        # (sinon le navigateur appellerait le PC de l'utilisateur au lieu du cluster).
+        run: |
+          IMAGE="${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}"
+          if docker run --rm --entrypoint sh "$IMAGE" -c 'grep -qE "127\.0\.0\.1:8000|localhost:8000" /usr/share/nginx/html/assets/*.js'; then
+            echo "ERROR: absolute API URL found in the frontend bundle"
+            exit 1
+          fi
+          echo "OK: frontend bundle uses relative API URLs"
+
+      - name: Scan frontend image (Trivy, non-blocking)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        continue-on-error: true
+        with:
+          version: v0.74.0
+          image-ref: ${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}
+          severity: HIGH,CRITICAL
+          exit-code: "0"
+
+      - name: Push frontend image
+        run: docker push "${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}"
+
+      - name: Summary
+        # Résumé affiché sur la page du run : les tags à mettre dans le chart Helm
+        run: |
+          {
+            echo "### Images published to GHCR"
+            echo "- \`${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}\`"
+            echo "- \`${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
