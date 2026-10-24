@@ -195,6 +195,25 @@ def test_list_tickets_with_nonexistent_status_filter():
     assert response.status_code == 422
 
 
+def test_list_tickets_with_valid_status_no_match():
+    """
+    Cas limite : un statut VALIDE mais porté par aucun ticket doit
+    retourner une liste vide (200), pas une erreur.
+    On crée d'abord un ticket "Open" pour que la base ne soit pas vide :
+    la liste vide prouve alors que le filtre exclut bien ce ticket.
+    """
+    client.post("/api/tickets", json={
+        "machine_name": "Machine Ouverte",
+        "description": "Ticket resté Open",
+        "priority": "Medium"
+    })
+
+    response = client.get("/api/tickets?status=Closed")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_list_tickets_with_invalid_priority_filter():
     """
     Cas d'erreur : même règle pour le filtre priority — une valeur hors
