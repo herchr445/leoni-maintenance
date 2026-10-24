@@ -2,8 +2,19 @@
 __pycache__/
 *.pyc
 venv/
-.env
 *.db
+
+# Variables d'environnement : tous les .env* restent locaux (mots de passe, URLs...)
+# sauf les modèles/valeurs sans secret, explicitement ré-inclus avec "!"
+# (les lignes "!" doivent venir APRÈS la règle qu'elles corrigent).
+.env
+.env.*
+!.env.example
+!frontend/.env.development
+
+# Rapports de couverture (générés par pytest-cov, en local et dans le pipeline)
+coverage.xml
+htmlcov/
 
 # Node
 node_modules/

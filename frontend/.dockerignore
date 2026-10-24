@@ -1,3 +1,6 @@
 node_modules/
 dist/
 .git/
+# Fichiers .env locaux : jamais dans le contexte de build. Vite figerait leurs
+# variables VITE_* dans le JavaScript public. L'URL de l'API vient de l'ARG du Dockerfile.
+.env*
