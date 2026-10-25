@@ -28,6 +28,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Réponses d'erreur documentées dans le schéma OpenAPI (page /docs) via le
+# paramètre "responses" des routes : le client sait d'avance quels codes
+# d'erreur une route peut renvoyer, en plus des réponses de succès.
+# (Les 422 de validation sont déjà documentés automatiquement par FastAPI.)
+TICKET_NOT_FOUND_RESPONSES = {404: {"description": "Aucun ticket ne correspond à cet ID"}}
+DATABASE_NOT_READY_RESPONSES = {503: {"description": "Base de données injoignable"}}
+
 
 @app.get("/health")
 def health_check():
@@ -39,7 +46,7 @@ def health_check():
     return {"status": "ok"}
 
 
-@app.get("/ready")
+@app.get("/ready", responses=DATABASE_NOT_READY_RESPONSES)
 def readiness_check(db: Session = Depends(get_db)):
     """
     Endpoint de disponibilité ("readiness") : l'API est-elle prête à servir ?
@@ -100,7 +107,11 @@ def get_stats(db: Session = Depends(get_db)):
     return crud.get_stats(db=db)
 
 
-@app.get("/api/tickets/{ticket_id}", response_model=schemas.TicketResponse)
+@app.get(
+    "/api/tickets/{ticket_id}",
+    response_model=schemas.TicketResponse,
+    responses=TICKET_NOT_FOUND_RESPONSES,
+)
 def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """
     Récupère un ticket précis par son ID.
@@ -112,7 +123,11 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
     return db_ticket
 
 
-@app.patch("/api/tickets/{ticket_id}", response_model=schemas.TicketResponse)
+@app.patch(
+    "/api/tickets/{ticket_id}",
+    response_model=schemas.TicketResponse,
+    responses=TICKET_NOT_FOUND_RESPONSES,
+)
 def update_ticket(ticket_id: int, ticket_update: schemas.TicketUpdate, db: Session = Depends(get_db)):
     """
     Met à jour un ticket existant (statut, assignation, etc.).
@@ -124,7 +139,7 @@ def update_ticket(ticket_id: int, ticket_update: schemas.TicketUpdate, db: Sessi
     return db_ticket
 
 
-@app.delete("/api/tickets/{ticket_id}", status_code=204)
+@app.delete("/api/tickets/{ticket_id}", status_code=204, responses=TICKET_NOT_FOUND_RESPONSES)
 def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """
     Supprime un ticket par son ID.

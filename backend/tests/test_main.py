@@ -430,4 +430,18 @@ def test_get_stats_high_priority_excludes_closed():
     after = client.get("/api/stats").json()["high_priority_tickets"]
 
     assert after == before - 1
+
+
+def test_openapi_documents_error_responses():
+    """
+    Vérifie que les codes d'erreur levés par les routes (HTTPException) sont
+    bien déclarés dans le schéma OpenAPI (page /docs) : 503 pour /ready,
+    404 pour lire / modifier / supprimer un ticket inexistant.
+    Empêche qu'un code documenté disparaisse sans qu'on le remarque.
+    """
+    paths = client.get("/openapi.json").json()["paths"]
+
+    assert "503" in paths["/ready"]["get"]["responses"]
+    for method in ("get", "patch", "delete"):
+        assert "404" in paths["/api/tickets/{ticket_id}"][method]["responses"]
     
