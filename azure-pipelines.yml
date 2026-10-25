@@ -36,9 +36,12 @@ stages:
           # à part (sonar.tests) : sinon backend/tests était compté comme du code à
           # couvrir alors que coverage.xml (pytest --cov=app) ne mesure que app/,
           # ce qui faisait baisser la couverture du "nouveau code".
+          # backend/Dockerfile est ajouté aux sources pour que SonarCloud continue
+          # d'analyser l'image (utilisateur non-root, --only-binary, hashes...).
+          # Un Dockerfile n'a pas de "lignes à couvrir" : la couverture ne change pas.
           # (Ne pas mettre de commentaire DANS extraProperties : ce bloc est
           # transmis tel quel au scanner comme propriétés.)
-          cliSources: 'backend/app'
+          cliSources: 'backend/app,backend/Dockerfile'
           extraProperties: |
               sonar.python.coverage.reportPaths=backend/coverage.xml
               sonar.tests=backend/tests
