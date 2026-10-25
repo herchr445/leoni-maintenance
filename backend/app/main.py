@@ -33,6 +33,10 @@ app.add_middleware(
 # d'erreur une route peut renvoyer, en plus des réponses de succès.
 # (Les 422 de validation sont déjà documentés automatiquement par FastAPI.)
 TICKET_NOT_FOUND_RESPONSES = {404: {"description": "Aucun ticket ne correspond à cet ID"}}
+
+# Message d'erreur 404 renvoyé au client : défini une seule fois pour que les
+# trois routes (lecture, modification, suppression) restent cohérentes.
+TICKET_NOT_FOUND_DETAIL = "Ticket not found"
 DATABASE_NOT_READY_RESPONSES = {503: {"description": "Base de données injoignable"}}
 
 
@@ -119,7 +123,7 @@ def get_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """
     db_ticket = crud.get_ticket(db=db, ticket_id=ticket_id)
     if db_ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        raise HTTPException(status_code=404, detail=TICKET_NOT_FOUND_DETAIL)
     return db_ticket
 
 
@@ -135,7 +139,7 @@ def update_ticket(ticket_id: int, ticket_update: schemas.TicketUpdate, db: Sessi
     """
     db_ticket = crud.update_ticket(db=db, ticket_id=ticket_id, ticket_update=ticket_update)
     if db_ticket is None:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        raise HTTPException(status_code=404, detail=TICKET_NOT_FOUND_DETAIL)
     return db_ticket
 
 
@@ -147,4 +151,4 @@ def delete_ticket(ticket_id: int, db: Session = Depends(get_db)):
     """
     success = crud.delete_ticket(db=db, ticket_id=ticket_id)
     if not success:
-        raise HTTPException(status_code=404, detail="Ticket not found")
+        raise HTTPException(status_code=404, detail=TICKET_NOT_FOUND_DETAIL)
