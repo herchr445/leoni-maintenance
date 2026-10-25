@@ -31,7 +31,14 @@ COPY requirements.txt .
 # --require-hashes : chaque fichier téléchargé doit correspondre à une empreinte
 #   SHA-256 de requirements.txt (généré par pip-compile depuis requirements.in) ;
 #   un paquet altéré ou substitué sur le dépôt est refusé.
-RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt
+# pip uninstall -y pip : pip ne sert qu'à cette installation, pas à l'exécution de
+#   l'application. On le retire dans le MÊME RUN : ses fichiers ne sont alors
+#   enregistrés dans aucune couche de l'image (un RUN séparé les masquerait
+#   seulement). Cela supprime aussi les paquets qu'il embarque (pip/_vendor :
+#   urllib3, msgpack, pkg_resources...), signalés par Trivy.
+#   C'est la dernière étape qui utilise pip : aucune instruction suivante n'en a besoin.
+RUN pip install --no-cache-dir --only-binary :all: --require-hashes -r requirements.txt \
+    && pip uninstall -y pip
 
 # Copie maintenant tout le reste du code de l'application.
 # Le code reste propriété de root, en lecture seule pour l'utilisateur app :
