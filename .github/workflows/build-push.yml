@@ -58,14 +58,18 @@ jobs:
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
-          # Cache pip indexé sur le fichier verrouillé (avec hashes)
+          # Cache pip indexé sur les deux fichiers verrouillés (avec hashes)
           cache: pip
-          cache-dependency-path: backend/requirements.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-dev.txt
 
       - name: Install dependencies (hash-checked)
         working-directory: backend
+        # requirements.txt = exécution (seul fichier installé dans l'image Docker) ;
+        # requirements-dev.txt = outils de test et de qualité (pytest, ruff, bandit...).
         # --require-hashes : chaque paquet doit correspondre à son empreinte SHA-256
-        run: pip install --require-hashes -r requirements.txt
+        run: pip install --require-hashes -r requirements.txt -r requirements-dev.txt
 
       - name: Run tests with coverage
         working-directory: backend

@@ -1,0 +1,16 @@
+# requirements-dev.in — outils de TEST et de QUALITÉ (jamais installés dans l'image Docker)
+# Installés en CI (Azure DevOps, GitHub Actions) et sur le poste de développement,
+# EN PLUS de requirements.txt :
+#   pip install -r requirements.txt -r requirements-dev.txt
+#
+# "-c requirements.txt" : les paquets communs aux deux fichiers (ex. anyio, idna)
+# gardent exactement la même version que dans le verrou d'exécution.
+# requirements-dev.txt est généré avec hashes par pip-compile (voir requirements.in).
+
+-c requirements.txt
+
+pytest==9.1.1               # lanceur de tests
+pytest-cov==7.1.0           # couverture de code (coverage.xml lu par SonarCloud)
+httpx==0.28.1               # requis par TestClient de FastAPI/Starlette (tests uniquement)
+ruff==0.16.3                # lint / style
+bandit==1.9.4               # scan de sécurité du code Python

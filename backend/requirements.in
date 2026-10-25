@@ -1,49 +1,22 @@
-# requirements.in — SOURCE des dépendances Python (à modifier ICI, pas dans requirements.txt)
+# requirements.in — dépendances d'EXÉCUTION du backend (ce qui va dans l'image Docker)
+# Les outils de test et de qualité sont dans requirements-dev.in (CI et poste de dev).
+#
 # requirements.txt est GÉNÉRÉ à partir de ce fichier, avec les empreintes (hashes) SHA-256
 # de chaque fichier publié sur PyPI (Linux ET Windows), pour que pip refuse tout paquet altéré.
+# Seules les dépendances directes sont listées ici ; pip-compile ajoute et verrouille
+# automatiquement leurs propres dépendances (starlette, anyio, greenlet...).
 #
 # Pour ajouter ou mettre à jour un paquet :
 #   1. modifier la version ci-dessous
 #   2. pip install pip-tools   (dans un venv à part, outil de développement)
-#   3. pip-compile --generate-hashes --allow-unsafe --strip-extras requirements.in -o requirements.txt
-#      (--allow-unsafe garde setuptools dans le verrou : version corrigée de la CVE-2025-47273)
-#   4. pytest, ruff, docker build, puis commit des DEUX fichiers
-#
-# Toutes les versions sont épinglées (==) : la génération n'en change aucune.
-annotated-doc==0.0.5
-annotated-types==0.8.0
-anyio==4.14.2
-bandit==1.9.4
-certifi==2026.10.19
-click==8.4.2
-colorama==0.4.6
-coverage==7.15.4
-fastapi==0.141.1
-greenlet==3.5.5
-h11==0.16.0
-httpcore==1.0.9
-httpx==0.28.1
-idna==3.18
-iniconfig==2.3.0
-markdown-it-py==4.2.0
-mdurl==0.1.2
-packaging==26.3
-pluggy==1.6.0
-psycopg==3.3.6
-psycopg-binary==3.3.6
-pydantic==2.13.4
-pydantic_core==2.46.4
-Pygments==2.20.0
-pytest==9.1.1
-pytest-cov==7.1.0
-PyYAML==6.0.3
-rich==15.0.0
-ruff==0.16.3
-setuptools==84.0.0
-SQLAlchemy==2.0.51
-starlette==1.6.0
-stevedore==5.9.0
-typing-inspection==0.4.3
-typing_extensions==4.16.0
-tzdata==2026.5
-uvicorn==0.52.1
+#   3. pip-compile --generate-hashes --allow-unsafe --strip-extras --no-emit-index-url requirements.in -o requirements.txt
+#      puis la même commande pour requirements-dev.in -o requirements-dev.txt
+#      (--allow-unsafe : si une dépendance exigeait un jour setuptools/pip, il serait
+#       verrouillé avec son hash au lieu d'être omis, ce qui ferait échouer --require-hashes)
+#   4. pytest, ruff, docker build, puis commit des quatre fichiers
+
+fastapi==0.141.1            # framework web (routes, validation)
+pydantic==2.13.4            # schémas de données (importé directement par app/schemas.py)
+SQLAlchemy==2.0.51          # accès base de données
+uvicorn==0.52.1             # serveur ASGI lancé par le CMD du Dockerfile
+psycopg[binary]==3.3.6      # pilote PostgreSQL (utilisé quand DATABASE_URL est définie)

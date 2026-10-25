@@ -64,9 +64,12 @@ stages:
       - script: python --version
         displayName: 'Vérifier Python'
 
+      # requirements.txt = dépendances d'exécution (les seules présentes dans l'image Docker) ;
+      # requirements-dev.txt = pytest, ruff, bandit... nécessaires aux étapes suivantes.
+      # Les deux fichiers contiennent des hashes : pip vérifie chaque paquet téléchargé.
       - script: |
           cd backend
-          pip install -r requirements.txt
+          pip install -r requirements.txt -r requirements-dev.txt
         displayName: 'Installer les dépendances'
 
       - script: |

@@ -116,8 +116,11 @@ Backend sur `http://localhost:8001` (`/ready` vérifie la connexion à PostgreSQ
 
 ```bash
 cd backend
+pip install -r requirements.txt -r requirements-dev.txt   # outils de test et de qualité
 pytest -v --cov=app --cov-report=term-missing
 ```
+
+Les dépendances sont séparées : `requirements.txt` (exécution, seul fichier installé dans l'image Docker) et `requirements-dev.txt` (pytest, Ruff, Bandit…). Les deux sont générés avec des empreintes SHA-256 par `pip-compile` à partir des fichiers `.in`.
 
 30 tests automatisés (unitaires et d'intégration), 100% de couverture du code applicatif. Chaque test s'exécute sur une base SQLite en mémoire, vide au départ : aucun test ne dépend de l'ordre d'exécution ni des données de développement.
 
