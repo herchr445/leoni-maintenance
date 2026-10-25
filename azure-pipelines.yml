@@ -32,9 +32,17 @@ stages:
           configMode: 'manual'
           cliProjectKey: 'leoni-maintenance'
           cliProjectName: 'leoni-maintenance'
-          cliSources: 'backend'
+          # Sources = code applicatif uniquement (backend/app). Les tests sont déclarés
+          # à part (sonar.tests) : sinon backend/tests était compté comme du code à
+          # couvrir alors que coverage.xml (pytest --cov=app) ne mesure que app/,
+          # ce qui faisait baisser la couverture du "nouveau code".
+          # (Ne pas mettre de commentaire DANS extraProperties : ce bloc est
+          # transmis tel quel au scanner comme propriétés.)
+          cliSources: 'backend/app'
           extraProperties: |
               sonar.python.coverage.reportPaths=backend/coverage.xml
+              sonar.tests=backend/tests
+              sonar.python.version=3.13
         displayName: 'Préparer l''analyse SonarCloud'
 
       # ----- STAGE 1a : BUILD & TEST -----
