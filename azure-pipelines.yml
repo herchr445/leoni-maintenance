@@ -23,6 +23,18 @@ stages:
       name: Default
     steps:
 
+      # ----- RÉCUPÉRATION DU CODE : HISTORIQUE GIT COMPLET -----
+      # Par défaut, Azure ne récupère que le dernier commit (clone "shallow").
+      # fetchDepth: 0 récupère tout l'historique :
+      # - SonarCloud a l'information SCM (blame) de chaque ligne → détection fiable
+      #   du "nouveau code" (plus d'avertissement "Shallow clone detected") ;
+      # - Gitleaks scanne tout l'historique et attribue chaque détection au commit
+      #   qui a réellement introduit la ligne (et non plus au dernier commit).
+      # Le checkout "shallow" déjà présent sur l'agent est complété (--unshallow).
+      - checkout: self
+        fetchDepth: 0
+        displayName: 'Récupérer le code (historique Git complet)'
+
       # ----- SONARCLOUD : PRÉPARATION (avant tout le reste) -----
       - task: SonarCloudPrepare@3
         inputs:
