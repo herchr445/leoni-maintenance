@@ -1,0 +1,30 @@
+# .gitleaks.toml — Configuration Gitleaks du dépôt
+# Chargée automatiquement par "gitleaks detect --source ." (fichier à la racine
+# du dossier scanné) : aucune modification de azure-pipelines.yml nécessaire.
+
+title = "leoni-maintenance gitleaks config"
+
+# On garde TOUTES les règles par défaut de Gitleaks (aucune règle désactivée).
+[extend]
+useDefault = true
+
+# Exception unique et ciblée : la clé de projet SonarCloud PUBLIQUE utilisée dans
+# le workflow GitHub Actions (SONAR_PROJECT_KEY). Ce n'est pas un secret : c'est
+# l'identifiant du projet, visible sur sonarcloud.io. La règle generic-api-key la
+# confond avec un jeton à cause du nom de variable "..._KEY".
+#
+# Les trois conditions doivent être vraies EN MÊME TEMPS (condition = "AND") :
+# - règle generic-api-key uniquement ;
+# - fichier .github/workflows/build-push.yml uniquement ;
+# - valeur détectée EXACTEMENT égale à la clé publique (regex ancrée ^...$).
+# Toute autre valeur, dans ce fichier ou ailleurs, reste détectée. L'exception ne
+# dépend d'aucun commit : elle fonctionne sur l'historique complet comme sur un
+# checkout "shallow" (agent Azure), contrairement à une empreinte .gitleaksignore.
+[[allowlists]]
+description = "Public SonarCloud project key (not a secret)"
+targetRules = ["generic-api-key"]
+condition = "AND"
+# "(^|/)" : chemin relatif (gitleaks detect, mode git) OU absolu (gitleaks dir)
+paths = ['''(^|/)\.github/workflows/build-push\.yml$''']
+regexTarget = "secret"
+regexes = ['''^herchr445_leoni-maintenance$''']
