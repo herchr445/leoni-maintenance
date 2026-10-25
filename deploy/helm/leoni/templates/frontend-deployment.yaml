@@ -1,0 +1,62 @@
+{{- /*
+frontend-deployment.yaml — Fichiers React compilés, servis par nginx-unprivileged.
+L'image Kubernetes est construite avec VITE_API_URL="" : le navigateur appelle
+/api/... sur la même adresse, routé vers le backend par l'Ingress.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "leoni.frontend.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "frontend" "version" .Values.frontend.image.tag) | nindent 4 }}
+spec:
+  replicas: {{ .Values.frontend.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "leoni.selectorLabels" (dict "context" . "component" "frontend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leoni.labels" (dict "context" . "component" "frontend" "version" .Values.frontend.image.tag) | nindent 8 }}
+    spec:
+      # Le pod n'appelle jamais l'API Kubernetes : pas de jeton monté
+      automountServiceAccountToken: false
+      # Utilisateur "nginx" (uid 101) de l'image nginx-unprivileged
+      securityContext:
+        {{- toYaml .Values.frontend.podSecurityContext | nindent 8 }}
+      containers:
+        - name: frontend
+          image: {{ include "leoni.image" (dict "image" .Values.frontend.image "component" "frontend") }}
+          imagePullPolicy: {{ .Values.frontend.image.pullPolicy }}
+          ports:
+            # nginx non-root écoute sur 8080 (un port < 1024 exigerait root)
+            - name: http
+              containerPort: 8080
+          # Disponibilité : nginx sert la page d'accueil
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 3
+          # Vivacité : nginx bloqué → redémarrage
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+            failureThreshold: 3
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.frontend.resources | nindent 12 }}
+          volumeMounts:
+            # OBLIGATOIRE en lecture seule : nginx y écrit son PID (/tmp/nginx.pid)
+            # et ses dossiers temporaires (client_temp, proxy_temp...) ; sans lui,
+            # nginx s'arrête au démarrage ("mkdir() /tmp/proxy_temp failed").
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

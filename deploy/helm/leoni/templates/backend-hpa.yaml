@@ -1,0 +1,29 @@
+{{- /*
+backend-hpa.yaml — Autoscaling horizontal du backend selon le CPU.
+Rendu UNIQUEMENT si backend.autoscaling.enabled=true (désactivé par défaut).
+Nécessite metrics-server (fourni par k3s) et des "requests" CPU sur le conteneur.
+*/ -}}
+{{- if .Values.backend.autoscaling.enabled }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ include "leoni.backend.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "backend" "version" .Values.backend.image.tag) | nindent 4 }}
+spec:
+  # Deployment piloté par l'HPA
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: {{ include "leoni.backend.fullname" . }}
+  minReplicas: {{ .Values.backend.autoscaling.minReplicas }}
+  maxReplicas: {{ .Values.backend.autoscaling.maxReplicas }}
+  metrics:
+    # Ajoute des pods quand l'utilisation CPU moyenne dépasse le seuil (en % des requests)
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: {{ .Values.backend.autoscaling.targetCPUUtilizationPercentage }}
+{{- end }}

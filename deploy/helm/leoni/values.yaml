@@ -1,0 +1,144 @@
+# values.yaml — Valeurs PAR DÉFAUT du chart leoni
+# Les valeurs propres à un environnement (tags d'image, Ingress...) sont dans un
+# fichier séparé, ex. values-local.yaml pour le cluster k3d :
+#   helm template leoni deploy/helm/leoni -f deploy/helm/leoni/values-local.yaml
+#
+# AUCUN mot de passe ici : le mot de passe PostgreSQL vient d'un Secret Kubernetes
+# créé à la main (kubectl create secret ...), référencé par postgres.auth.existingSecret.
+
+# Contexte de sécurité commun des conteneurs (durcissement, profil "restricted")
+containerSecurityContext:
+  # Interdit à un processus de gagner plus de droits que son parent (setuid...)
+  allowPrivilegeEscalation: false
+  # Système de fichiers racine en lecture seule : seuls les volumes montés sont inscriptibles
+  readOnlyRootFilesystem: true
+  # Aucune capacité Linux (pas de bind < 1024, pas de chown, etc.)
+  capabilities:
+    drop: ["ALL"]
+
+# ---------------------------------------------------------------------------
+# Backend FastAPI
+# ---------------------------------------------------------------------------
+backend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/herchr445/leoni-backend
+    # Tag OBLIGATOIRE = SHA court du commit (jamais "latest"), défini par environnement
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 8000
+  # Utilisateur non-root de l'image (créé dans backend/Dockerfile)
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 50m
+      memory: 96Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+  probes:
+    # Démarrage : laisse jusqu'à 60 s (30 × 2 s) avant que la liveness prenne le relais
+    startup:
+      periodSeconds: 2
+      failureThreshold: 30
+    # Vivacité : /health (sans base de données) ; échec répété → redémarrage du conteneur
+    liveness:
+      periodSeconds: 10
+      failureThreshold: 3
+    # Disponibilité : /ready (SELECT 1) ; échec → pod retiré du trafic, pas redémarré
+    readiness:
+      periodSeconds: 5
+      failureThreshold: 3
+  # Autoscaling horizontal sur le CPU (désactivé par défaut)
+  autoscaling:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 4
+    targetCPUUtilizationPercentage: 70
+
+# ---------------------------------------------------------------------------
+# Frontend React servi par nginx-unprivileged
+# ---------------------------------------------------------------------------
+frontend:
+  replicaCount: 2
+  image:
+    repository: ghcr.io/herchr445/leoni-frontend
+    # Tag OBLIGATOIRE = SHA court du commit (image construite avec VITE_API_URL="")
+    tag: ""
+    pullPolicy: IfNotPresent
+  service:
+    port: 8080
+  # Utilisateur "nginx" de l'image nginx-unprivileged
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 101
+    runAsGroup: 101
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      cpu: 200m
+      memory: 64Mi
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (StatefulSet, 1 réplique, données sur un PersistentVolumeClaim)
+# ---------------------------------------------------------------------------
+postgres:
+  image:
+    repository: postgres
+    # Version exacte épinglée (pas "16-alpine" qui change dans le temps)
+    tag: "16.15-alpine"
+    pullPolicy: IfNotPresent
+  service:
+    port: 5432
+  auth:
+    # Valeurs non secrètes
+    username: leoni
+    database: leoni_maintenance
+    # Secret EXISTANT (non créé par le chart) contenant le mot de passe
+    existingSecret: leoni-db
+    passwordKey: password
+  persistence:
+    size: 1Gi
+    # Vide = StorageClass par défaut du cluster (local-path sur k3d)
+    storageClassName: ""
+  # Utilisateur "postgres" de l'image officielle Alpine (uid/gid 70)
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 70
+    runAsGroup: 70
+    # Le volume de données est rendu accessible au groupe 70
+    fsGroup: 70
+    fsGroupChangePolicy: OnRootMismatch
+    seccompProfile:
+      type: RuntimeDefault
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: "1"
+      memory: 512Mi
+
+# ---------------------------------------------------------------------------
+# NetworkPolicy : seul le backend peut joindre PostgreSQL (port 5432),
+# tout autre trafic entrant vers la base est refusé
+# ---------------------------------------------------------------------------
+networkPolicy:
+  enabled: true
+
+# ---------------------------------------------------------------------------
+# Ingress (Traefik, intégré à k3s)
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: false
+  className: traefik

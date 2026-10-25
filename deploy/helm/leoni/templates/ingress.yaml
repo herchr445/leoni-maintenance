@@ -1,0 +1,56 @@
+{{- /*
+ingress.yaml — Point d'entrée HTTP unique (Traefik, intégré à k3s).
+Sans "host" : répond sur n'importe quel nom, donc sur http://localhost:8090 (k3d).
+Même origine pour la page et l'API → aucun problème de CORS dans le cluster.
+  /api           → backend (préfixe : /api/tickets, /api/stats...)
+  /health /ready → backend
+  /              → frontend (tout le reste : page React et ses fichiers)
+
+IMPORTANT (Traefik) : l'ordre des chemins ci-dessous n'a AUCUN effet. Traefik
+classe ses routes par LONGUEUR de règle (la plus longue gagne). Avec pathType
+Exact, /ready donnait Path(`/ready`) (14 caractères), plus court que
+PathPrefix(`/`) (15) : la requête partait vers le frontend (page HTML au lieu
+du JSON). Avec Prefix, PathPrefix(`/health`) et PathPrefix(`/ready`) sont plus
+longs que PathPrefix(`/`) et l'emportent toujours.
+*/ -}}
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "leoni.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "ingress") | nindent 4 }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "leoni.backend.fullname" . }}
+                port:
+                  name: http
+          - path: /health
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "leoni.backend.fullname" . }}
+                port:
+                  name: http
+          - path: /ready
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "leoni.backend.fullname" . }}
+                port:
+                  name: http
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ include "leoni.frontend.fullname" . }}
+                port:
+                  name: http
+{{- end }}

@@ -1,0 +1,15 @@
+# Chart.yaml — Identité du chart Helm de l'application Leoni Maintenance
+# apiVersion v2 : format de chart de Helm 3, entièrement supporté par Helm 4.
+apiVersion: v2
+name: leoni
+description: Leoni maintenance ticketing system (FastAPI backend, React frontend, PostgreSQL)
+# application : chart qui déploie une application (et pas une bibliothèque de templates)
+type: application
+# Version du CHART (à incrémenter quand les templates changent)
+version: 0.1.0
+# Version indicative de l'application. La version réellement déployée est le tag
+# d'image (SHA du commit) défini dans values-local.yaml, repris dans le label
+# app.kubernetes.io/version de chaque composant.
+appVersion: "1.0.0"
+# PVC retention policy des StatefulSets : disponible depuis Kubernetes 1.27
+kubeVersion: ">=1.27.0-0"

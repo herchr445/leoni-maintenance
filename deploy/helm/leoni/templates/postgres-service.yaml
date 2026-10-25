@@ -1,0 +1,19 @@
+{{- /*
+postgres-service.yaml — Service HEADLESS (clusterIP: None) du StatefulSet.
+Pas d'IP virtuelle : le nom DNS "leoni-postgres" résout directement l'IP du pod
+leoni-postgres-0. Utilisé par le backend (DATABASE_URL) et son init container.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leoni.postgres.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "postgres" "version" .Values.postgres.image.tag) | nindent 4 }}
+spec:
+  clusterIP: None
+  selector:
+    {{- include "leoni.selectorLabels" (dict "context" . "component" "postgres") | nindent 4 }}
+  ports:
+    - name: postgres
+      port: {{ .Values.postgres.service.port }}
+      targetPort: postgres

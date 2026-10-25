@@ -1,0 +1,35 @@
+{{- /*
+postgres-networkpolicy.yaml — Pare-feu réseau devant PostgreSQL.
+Une fois ce pod sélectionné par une NetworkPolicy de type Ingress, TOUT trafic
+entrant est refusé SAUF ce qui est explicitement autorisé ci-dessous :
+les pods backend de cette release, sur TCP 5432. Aucun autre pod (frontend,
+pod de debug, autre application du cluster) ne peut joindre la base.
+- L'init container wait-for-db s'exécute DANS le pod backend : il est autorisé.
+- Les sondes pg_isready visent 127.0.0.1 depuis le pod lui-même : non concernées.
+Appliqué par le contrôleur de NetworkPolicy intégré à k3s (kube-router).
+*/ -}}
+{{- if .Values.networkPolicy.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "leoni.postgres.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "postgres") | nindent 4 }}
+spec:
+  # Pods protégés : PostgreSQL de cette release
+  podSelector:
+    matchLabels:
+      {{- include "leoni.selectorLabels" (dict "context" . "component" "postgres") | nindent 6 }}
+  # Seul le trafic ENTRANT est filtré (les sorties de PostgreSQL restent libres)
+  policyTypes:
+    - Ingress
+  ingress:
+    # Unique exception : pods backend de la même release, port 5432 TCP
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "leoni.selectorLabels" (dict "context" . "component" "backend") | nindent 14 }}
+      ports:
+        - protocol: TCP
+          port: {{ .Values.postgres.service.port }}
+{{- end }}

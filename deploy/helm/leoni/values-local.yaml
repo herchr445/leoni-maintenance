@@ -1,0 +1,22 @@
+# values-local.yaml — Valeurs pour le cluster local k3d "leoni"
+# (http://localhost:8090 → load balancer k3d → Traefik → Ingress)
+# Seules les différences avec values.yaml sont écrites ici.
+
+backend:
+  replicaCount: 2
+  image:
+    # SHA court du dernier run GitHub Actions vert (images publiées dans GHCR).
+    # Entre guillemets : un SHA uniquement numérique serait sinon lu comme un nombre.
+    tag: "668754f"
+
+frontend:
+  replicaCount: 2
+  image:
+    tag: "668754f"
+
+postgres:
+  persistence:
+    size: 1Gi
+
+ingress:
+  enabled: true

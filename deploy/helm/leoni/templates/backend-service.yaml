@@ -1,0 +1,20 @@
+{{- /*
+backend-service.yaml — Adresse interne stable de l'API (ClusterIP).
+Répartit les requêtes entre les pods backend PRÊTS (readinessProbe /ready OK).
+Utilisé par l'Ingress pour /api, /health et /ready.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leoni.backend.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "backend" "version" .Values.backend.image.tag) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "leoni.selectorLabels" (dict "context" . "component" "backend") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.backend.service.port }}
+      # Port nommé du conteneur (containerPort 8000)
+      targetPort: http

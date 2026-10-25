@@ -1,0 +1,118 @@
+{{- /*
+backend-deployment.yaml — API FastAPI (plusieurs répliques, sans état local).
+Toutes les données sont dans PostgreSQL : n'importe quel pod peut servir
+n'importe quelle requête, ce qui permet de scaler et de mettre à jour sans coupure.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "leoni.backend.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "backend" "version" .Values.backend.image.tag) | nindent 4 }}
+spec:
+  {{- /* Avec l'HPA activé, c'est lui qui fixe le nombre de répliques (pas le chart) */}}
+  {{- if not .Values.backend.autoscaling.enabled }}
+  replicas: {{ .Values.backend.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "leoni.selectorLabels" (dict "context" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "leoni.labels" (dict "context" . "component" "backend" "version" .Values.backend.image.tag) | nindent 8 }}
+    spec:
+      # Le pod n'appelle jamais l'API Kubernetes : pas de jeton monté
+      automountServiceAccountToken: false
+      # Utilisateur non-root (uid 10001), profil seccomp par défaut du runtime
+      securityContext:
+        {{- toYaml .Values.backend.podSecurityContext | nindent 8 }}
+      initContainers:
+        # Attend que PostgreSQL accepte les connexions AVANT de lancer l'API :
+        # main.py exécute create_all() à l'import, l'API planterait en boucle sinon.
+        - name: wait-for-db
+          image: {{ include "leoni.image" (dict "image" .Values.postgres.image "component" "postgres") }}
+          imagePullPolicy: {{ .Values.postgres.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
+                echo "waiting for PostgreSQL at $DB_HOST:$DB_PORT..."
+                sleep 2
+              done
+          env:
+            - name: DB_HOST
+              value: {{ include "leoni.postgres.fullname" . | quote }}
+            - name: DB_PORT
+              value: {{ .Values.postgres.service.port | quote }}
+            - name: DB_USER
+              value: {{ .Values.postgres.auth.username | quote }}
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi
+      containers:
+        - name: backend
+          image: {{ include "leoni.image" (dict "image" .Values.backend.image "component" "backend") }}
+          imagePullPolicy: {{ .Values.backend.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            # Mot de passe lu dans le Secret existant (jamais écrit dans le chart)
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.auth.existingSecret }}
+                  key: {{ .Values.postgres.auth.passwordKey }}
+            # DATABASE_URL définie → database.py utilise PostgreSQL.
+            # $(DB_PASSWORD) est remplacé par Kubernetes au démarrage du conteneur :
+            # le mot de passe n'apparaît ni dans le manifeste ni dans "kubectl describe".
+            - name: DATABASE_URL
+              value: "postgresql+psycopg://{{ .Values.postgres.auth.username }}:$(DB_PASSWORD)@{{ include "leoni.postgres.fullname" . }}:{{ .Values.postgres.service.port }}/{{ .Values.postgres.auth.database }}"
+            # Racine en lecture seule : Python ne tente pas d'écrire de cache .pyc
+            - name: PYTHONDONTWRITEBYTECODE
+              value: "1"
+          # Démarrage : /health doit répondre avant que liveness/readiness ne commencent
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ .Values.backend.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.backend.probes.startup.failureThreshold }}
+            timeoutSeconds: 2
+          # Vivacité : processus bloqué → redémarrage (/health ne touche pas la base)
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: {{ .Values.backend.probes.liveness.periodSeconds }}
+            failureThreshold: {{ .Values.backend.probes.liveness.failureThreshold }}
+            timeoutSeconds: 2
+          # Disponibilité : base injoignable → /ready = 503 → pod retiré du Service
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            periodSeconds: {{ .Values.backend.probes.readiness.periodSeconds }}
+            failureThreshold: {{ .Values.backend.probes.readiness.failureThreshold }}
+            timeoutSeconds: 2
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          resources:
+            {{- toYaml .Values.backend.resources | nindent 12 }}
+          volumeMounts:
+            # Seul dossier inscriptible (précaution : l'application n'écrit rien aujourd'hui,
+            # mais le module tempfile de Python utiliserait /tmp, ex. pour des uploads)
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 16Mi

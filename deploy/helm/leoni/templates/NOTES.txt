@@ -1,0 +1,27 @@
+Leoni Maintenance is deployed (release "{{ .Release.Name }}", namespace "{{ .Release.Namespace }}").
+  backend  image: {{ include "leoni.image" (dict "image" .Values.backend.image "component" "backend") }}
+  frontend image: {{ include "leoni.image" (dict "image" .Values.frontend.image "component" "frontend") }}
+  postgres image: {{ include "leoni.image" (dict "image" .Values.postgres.image "component" "postgres") }}
+
+1. Prerequisite: the Secret "{{ .Values.postgres.auth.existingSecret }}" must exist in this namespace
+   (it is NOT created by the chart). Check it:
+     kubectl get secret {{ .Values.postgres.auth.existingSecret }} -n {{ .Release.Namespace }}
+
+2. Watch the pods until they are all Running and Ready:
+     kubectl get pods -n {{ .Release.Namespace }} -w
+{{- if .Values.ingress.enabled }}
+
+3. Open the application (k3d load balancer on port 8090 → Traefik → Ingress):
+     http://localhost:8090
+   Health checks:
+     curl http://localhost:8090/health
+     curl http://localhost:8090/ready
+{{- else }}
+
+3. The Ingress is disabled. Reach the frontend with a port-forward:
+     kubectl port-forward svc/{{ include "leoni.frontend.fullname" . }} -n {{ .Release.Namespace }} 8090:{{ .Values.frontend.service.port }}
+{{- end }}
+
+Data: PostgreSQL data lives in the PVC "data-{{ include "leoni.postgres.fullname" . }}-0".
+"helm uninstall" and "helm upgrade" do NOT delete it. It is deleted (with all data) only by
+"kubectl delete pvc", deleting the namespace, or deleting the k3d cluster.

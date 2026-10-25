@@ -1,0 +1,11 @@
+# .helmignore — Fichiers exclus quand le chart est empaqueté (helm package)
+.DS_Store
+.git/
+.gitignore
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.idea/
+.vscode/

@@ -1,0 +1,19 @@
+{{- /*
+frontend-service.yaml — Adresse interne stable du frontend (ClusterIP).
+Utilisé par l'Ingress pour la racine "/".
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "leoni.frontend.fullname" . }}
+  labels:
+    {{- include "leoni.labels" (dict "context" . "component" "frontend" "version" .Values.frontend.image.tag) | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "leoni.selectorLabels" (dict "context" . "component" "frontend") | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.frontend.service.port }}
+      # Port nommé du conteneur (containerPort 8080)
+      targetPort: http
