@@ -28,6 +28,19 @@ const STATUS_OPTIONS = ["Open", "InProgress", "Resolved", "Closed"];
 
 const formatWorkOrder = (id) => `WO-${String(id).padStart(4, "0")}`;
 
+// URL d'un ticket précis (modification / suppression).
+// L'ID est d'abord converti et validé (entier strictement positif), puis encodé :
+// une valeur inattendue (ex : "../stats") ne peut pas changer la route appelée.
+// Retourne null si l'ID est invalide → l'appelant n'envoie aucune requête.
+const ticketUrl = (ticketId) => {
+  const id = Number(ticketId);
+  if (!Number.isInteger(id) || id <= 0) return null;
+  return `${API_URL}/api/tickets/${encodeURIComponent(id)}`;
+};
+
+// Message affiché (bandeau d'erreur existant) quand l'ID d'un ticket est invalide
+const INVALID_TICKET_ID_ERROR = "Erreur : identifiant de ticket invalide";
+
 function App() {
   const [tickets, setTickets] = useState([]);
   const [stats, setStats] = useState(null);
@@ -106,7 +119,13 @@ function App() {
   };
 
   const handleStatusChange = (ticketId, newStatus) => {
-    fetch(`${API_URL}/api/tickets/${ticketId}`, {
+    const url = ticketUrl(ticketId);
+    if (!url) {
+      // ID invalide : aucune requête envoyée, erreur affichée comme les autres
+      setError(INVALID_TICKET_ID_ERROR);
+      return;
+    }
+    fetch(url, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
@@ -120,8 +139,15 @@ function App() {
   };
 
   const handleDelete = (ticketId) => {
+    const url = ticketUrl(ticketId);
+    if (!url) {
+      // Vérifié AVANT la confirmation : inutile de demander de confirmer
+      // une suppression qui ne pourra pas être envoyée
+      setError(INVALID_TICKET_ID_ERROR);
+      return;
+    }
     if (!window.confirm("Supprimer ce ticket définitivement ?")) return;
-    fetch(`${API_URL}/api/tickets/${ticketId}`, { method: "DELETE" })
+    fetch(url, { method: "DELETE" })
       .then((res) => {
         if (!res.ok) throw new Error("Erreur lors de la suppression");
         refreshAll();
