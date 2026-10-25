@@ -90,6 +90,11 @@ jobs:
           # Configuration passée ICI et pas dans sonar-project.properties :
           # ce fichier serait aussi lu par le scanner du pipeline Azure DevOps
           # et casserait son analyse (tests indexés deux fois).
+          # sonar.coverage.exclusions=frontend/** : le frontend reste analysé
+          # (bugs, sécurité, maintenabilité) mais n'entre pas dans le calcul de
+          # couverture : il n'a ni tests ni rapport de couverture, ses lignes
+          # comptaient donc comme "non couvertes" et faisaient échouer le
+          # Quality Gate. La couverture est mesurée sur le backend (pytest-cov).
           args: >
             -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
@@ -97,6 +102,7 @@ jobs:
             -Dsonar.tests=backend/tests
             -Dsonar.python.version=3.13
             -Dsonar.python.coverage.reportPaths=backend/coverage.xml
+            -Dsonar.coverage.exclusions=frontend/**
 
   # ===================================================================
   # JOB 2 : images Docker → scan Trivy → publication dans GHCR
