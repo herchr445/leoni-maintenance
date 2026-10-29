@@ -3,13 +3,24 @@
 Manual Helm installation of the application on a local k3s cluster, followed by
 real resilience tests. Every result below was measured on the cluster, not assumed.
 
-- Date: 25 October 2026
+- Dates: first run 25 October 2026 (sections 1–3), fixes and final run 29 October 2026 (section 4)
 - Cluster: k3d v5.9.0, k3s **v1.35.5+k3s1**, 1 server + 1 agent node (Docker Desktop, Windows 11)
 - Tools: kubectl v1.34.1, Helm **v4.3.1**
 - Chart: `deploy/helm/leoni` (chart 0.1.0) with `values-local.yaml`
 - Images (built by GitHub Actions, public in GHCR, tagged with the short commit SHA):
-  `ghcr.io/herchr445/leoni-backend:668754f`, `ghcr.io/herchr445/leoni-frontend:668754f`, `postgres:16.15-alpine`
+  first run `668754f`; **final run `298b48d`** (includes the three fixes of section 4); `postgres:16.15-alpine`
 - Application URL: `http://localhost:8090` (k3d load balancer → Traefik → Ingress)
+
+**Final results at a glance** (details in section 4):
+
+| Test | Result |
+|---|---|
+| Rolling updates + rollbacks under continuous traffic | **0 failed requests out of 904** (p99 latency 31 ms) |
+| `/ready` with PostgreSQL stopped | **503 in 7 ms (median), 25 ms max** — target ≈ 3 s |
+| Database pod deleted / stopped | data intact, back in **5 s**, 0 backend restarts |
+| Backend pod deleted | replacement Ready in **6 s**, 150/150 requests OK |
+| Two backends cold-started together on an empty database | **0 restarts in 10 pod starts** (advisory lock) |
+| NetworkPolicy | only backend pods reach PostgreSQL:5432 |
 
 ## Architecture deployed
 
@@ -201,37 +212,117 @@ partial update (frontend updated, backend not). `--force-conflicts` lets Helm ta
 the field back; the replica count returned to the chart value (2). Lesson: manual
 `kubectl` changes are drift — the chart (later Git, with ArgoCD) is the source of truth.
 
-### 3.3 A few failed requests during a rolling update (proposed fix)
+### 3.3 A few failed requests during a rolling update (fixed — see 4.1)
 
 When a pod is replaced, it receives its stop signal at the same moment it is removed
 from the Service endpoints, so Traefik can still send it a request for a moment
-(3 failures out of 200 during the rollback). Proposed fix: a `preStop` delay
-(`lifecycle.preStop.sleep.seconds: 5`, native since Kubernetes 1.30) on the backend
-and frontend, so a pod keeps serving while traffic is moved away.
+(3 failures out of 200 during the rollback). Fixed with a `preStop` delay on the
+backend and frontend: 0 failures out of 904 requests in the final run.
 
-### 3.4 `/ready` timed out instead of answering 503 during a database outage (proposed fix)
+### 3.4 `/ready` timed out instead of answering 503 during a database outage (fixed — see 4.2)
 
 The behaviour was correct (pods removed from traffic, not restarted), but `/ready`
-hung longer than the 2 s probe timeout instead of returning `503`: the database URL
-has no connection timeout, so psycopg waited on a TCP connection to the old pod IP.
-Proposed fix: add `?connect_timeout=3` to `DATABASE_URL` in the chart.
+hung longer than the 2 s probe timeout instead of returning `503`. Two causes were
+found and fixed: no connection timeout in the database URL, and a slow DNS failure
+of the short service name. Final result: `503` in 7 ms (median).
 
-### 3.5 Concurrent schema creation at first start (risk, did not occur)
+### 3.5 Concurrent schema creation at first start (fixed — see 4.3)
 
-`main.py` runs `create_all()` at import. Two backend replicas starting at the same
+`main.py` ran `create_all()` at import. Two backend replicas starting at the same
 instant on an empty database could both try to create the tables and enum types;
-one would fail once and restart. It did not happen here (the two containers started
-6 s apart). Proposed fix: create the schema once, before the API starts — for example
-take a PostgreSQL advisory lock around `create_all()`, or move schema creation to a
-dedicated migration step (a Helm hook Job running Alembic migrations).
+one would fail once and restart. It did not happen in the first run (the two
+containers started 6 s apart), but a deterministic test reproduced it 10 times out
+of 10. Fixed with a PostgreSQL advisory lock around the schema creation.
 
-## 4. State left running
+## 4. Fixes applied and final results (29 October 2026)
+
+The three problems of 3.3–3.5 were fixed in separate commits, the backend image was
+rebuilt by GitHub Actions (tag `298b48d`), the tag was set in `values-local.yaml`
+(a commit touching only `deploy/`, so neither CI pipeline is triggered), and the
+release was upgraded with `helm upgrade` (revision 15). All tests below ran on `298b48d`.
+
+### 4.1 Zero-downtime rolling updates — `preStop` drain
+
+Fix: `lifecycle.preStop.sleep.seconds: 5` (native Kubernetes action, no binary needed in
+the image) on the backend and frontend, with an explicit `terminationGracePeriodSeconds: 30`.
+Measured shutdown after the stop signal: uvicorn **0.55 s**, nginx **0.37 s** (graceful
+`SIGQUIT`), so 5 s + ~0.6 s stays far below the 30 s grace period. The chart refuses to
+render if the `preStop` delay is not lower than the grace period.
+
+Test: one `GET /api/stats` every 0.2 s through the Ingress during each rollout.
+
+| Rollout | Requests | Failed | Slowest |
+|---|---|---|---|
+| upgrade `668754f` → `298b48d` (revision 15) | 140 | **0** | 36 ms |
+| cycle 1: upgrade to `668754f` / rollback to rev. 15 | 130 / 125 | **0 / 0** | 34 ms |
+| cycle 2: upgrade / rollback | 124 / 128 | **0 / 0** | 32 ms |
+| cycle 3: upgrade / rollback | 129 / 128 | **0 / 0** | 33 ms |
+| **Total** | **904** | **0** | p99 31 ms |
+
+Each rollout took 14–16 s (78 s for the first one, which included pulling the new images).
+Before the fix: 3 failures out of 200 requests during a single rollback.
+
+### 4.2 Fast `503` when the database is down — connection timeout and full DNS name
+
+Fix, in two parts found by measurement:
+
+1. `?connect_timeout=3` in `DATABASE_URL`: a connection attempt to an unreachable
+   address gives up after 3 s instead of hanging. Alone, this gave `503` in 4–6 s.
+2. Timing DNS inside a backend pod with PostgreSQL stopped showed why: the short name
+   `leoni-postgres` took **4.01 s** to fail (the query left the cluster's DNS zone),
+   while the full name `leoni-postgres.leoni.svc.cluster.local` failed in **0.00 s**.
+   The chart now uses the full name (`clusterDomain` in `values.yaml`).
+
+Test: `kubectl scale statefulset leoni-postgres --replicas=0`, then `/ready` every second.
+
+| | `/ready` with PostgreSQL stopped |
+|---|---|
+| Before the fixes | no answer within the 2 s probe timeout |
+| `connect_timeout` only | `503` in 4–6 s |
+| **Final (`298b48d`)** | **12 / 12 calls → `503 {"detail":"Database not ready"}`, median 7 ms, max 25 ms** |
+
+After `--replicas=1`: `/ready` OK again in **5 s**, same data fingerprint (`85c6824ee32e`),
+0 backend restarts. `/health` stays `200` throughout, so pods are taken out of traffic
+but never restarted.
+
+### 4.3 Concurrent schema creation — PostgreSQL advisory lock
+
+Fix: `create_schema()` in `database.py`. With PostgreSQL it runs one transaction:
+`SELECT pg_advisory_xact_lock(<fixed id>)`, then `create_all()` on the same connection,
+then commit (which releases the lock automatically). The first replica creates the
+schema; the others wait, then find the tables and do nothing. With SQLite (tests,
+local development, Docker Desktop deployment) it is a plain `create_all()`.
+Two unit tests cover both paths (33 tests, 100 % coverage).
+
+Why an advisory lock and not Alembic yet: it fixes exactly this race in a few lines with
+no new dependency. Alembic's value is evolving an existing schema (adding or renaming
+columns), which needs migration scripts and a dedicated Job before the API starts; it
+becomes worth it when the data model starts to change.
+
+| Test | Without the lock | With the lock |
+|---|---|---|
+| Deterministic: 2 threads released by a barrier, empty PostgreSQL, 10 rounds | **10 / 10 rounds with a failed start** (`UniqueViolation` on `CREATE TYPE`) | **0 / 10** |
+| Kubernetes: temporary namespace, backend scaled 0 → 2 on an emptied database, 5 rounds (both init containers finished in the same second every time) | 0 restarts in 10 pod starts | **0 restarts in 10 pod starts** |
+
+The cold starts in the cluster never hit the race even without the lock: the collision
+window is a few milliseconds, while the starts are only synchronised to the second.
+The deterministic test is the one that proves the lock removes the race. The temporary
+namespace was deleted afterwards; `helm uninstall` kept its PVC, as designed, and only
+deleting the namespace removed it.
+
+### 4.4 CI path filters
+
+A commit touching only `docs/` or `deploy/` does not trigger the Azure DevOps pipeline
+(`trigger.paths.exclude`) nor the GitHub Actions image build (`paths-ignore`): nothing
+changes for the Docker Desktop deployment or the images.
+
+## 5. State left running
 
 | | |
 |---|---|
-| Helm release | `leoni`, revision 5, `deployed` |
+| Helm release | `leoni`, revision 21, `deployed`, images `298b48d` |
 | Pods | 2 backend, 2 frontend, 1 postgres — all `1/1 Running`, 0 restarts |
-| Resources (`kubectl top`) | backend ~58 MiB each, frontend ~13 MiB each, postgres ~25 MiB |
+| Resources (`kubectl top`) | backend ~58 MiB each, frontend ~13 MiB each, postgres ~21 MiB |
 | Data | 5 work orders in PostgreSQL (PVC `data-leoni-postgres-0`) |
 
 Useful commands:
