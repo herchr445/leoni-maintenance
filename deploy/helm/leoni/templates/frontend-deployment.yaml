@@ -19,6 +19,9 @@ spec:
       labels:
         {{- include "leoni.labels" (dict "context" . "component" "frontend" "version" .Values.frontend.image.tag) | nindent 8 }}
     spec:
+      {{- include "leoni.checkGracePeriod" (dict "values" .Values.frontend "component" "frontend") }}
+      # Délai maximal entre l'ordre d'arrêt et l'arrêt forcé (doit couvrir preStop + arrêt de nginx)
+      terminationGracePeriodSeconds: {{ .Values.frontend.terminationGracePeriodSeconds }}
       # Le pod n'appelle jamais l'API Kubernetes : pas de jeton monté
       automountServiceAccountToken: false
       # Utilisateur "nginx" (uid 101) de l'image nginx-unprivileged
@@ -32,6 +35,12 @@ spec:
             # nginx non-root écoute sur 8080 (un port < 1024 exigerait root)
             - name: http
               containerPort: 8080
+          lifecycle:
+            # Drainage avant l'arrêt (même principe que le backend) : nginx continue de
+            # servir pendant qu'il est retiré des cibles de Traefik, puis reçoit SIGQUIT.
+            preStop:
+              sleep:
+                seconds: {{ .Values.frontend.preStopSleepSeconds }}
           # Disponibilité : nginx sert la page d'accueil
           readinessProbe:
             httpGet:

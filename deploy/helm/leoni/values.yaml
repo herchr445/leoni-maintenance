@@ -28,6 +28,14 @@ backend:
     pullPolicy: IfNotPresent
   service:
     port: 8000
+  # Arrêt propre d'un pod (mise à jour, suppression, scale-down) :
+  # 1. le pod est retiré des endpoints du Service EN MÊME TEMPS qu'il reçoit l'ordre d'arrêt ;
+  # 2. preStop attend preStopSleepSeconds : Traefik et kube-proxy ont le temps de ne plus
+  #    lui envoyer de requêtes, pendant qu'il continue de servir celles qui arrivent encore ;
+  # 3. seulement ensuite le signal d'arrêt est envoyé (uvicorn s'arrête en ~0,6 s mesuré).
+  # terminationGracePeriodSeconds doit rester > preStop + arrêt de l'application.
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 30
   # Utilisateur non-root de l'image (créé dans backend/Dockerfile)
   podSecurityContext:
     runAsNonRoot: true
@@ -74,6 +82,9 @@ frontend:
     pullPolicy: IfNotPresent
   service:
     port: 8080
+  # Même logique d'arrêt propre que le backend (nginx s'arrête en ~0,4 s mesuré, SIGQUIT)
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 30
   # Utilisateur "nginx" de l'image nginx-unprivileged
   podSecurityContext:
     runAsNonRoot: true

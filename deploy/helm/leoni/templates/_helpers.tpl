@@ -75,6 +75,18 @@ Paramètres : dict "image" (bloc image des values) et "component" (pour le messa
 {{- printf "%s:%s" .image.repository $tag -}}
 {{- end -}}
 
+{{/*
+Garde-fou de l'arrêt propre : le délai preStop doit être STRICTEMENT inférieur
+au délai de grâce, sinon Kubernetes tuerait le conteneur (SIGKILL) pendant
+l'attente, avant même l'arrêt normal de l'application.
+Paramètres : dict "values" (bloc backend ou frontend) et "component".
+*/}}
+{{- define "leoni.checkGracePeriod" -}}
+{{- if ge (int .values.preStopSleepSeconds) (int .values.terminationGracePeriodSeconds) -}}
+{{- fail (printf "%s.preStopSleepSeconds (%v) must be lower than %s.terminationGracePeriodSeconds (%v)" .component .values.preStopSleepSeconds .component .values.terminationGracePeriodSeconds) -}}
+{{- end -}}
+{{- end -}}
+
 {{/* Noms des Services, réutilisés par l'Ingress, le backend et NOTES.txt */}}
 {{- define "leoni.backend.fullname" -}}
 {{- printf "%s-backend" (include "leoni.fullname" .) -}}

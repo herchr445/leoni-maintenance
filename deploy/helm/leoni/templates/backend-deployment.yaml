@@ -22,6 +22,9 @@ spec:
       labels:
         {{- include "leoni.labels" (dict "context" . "component" "backend" "version" .Values.backend.image.tag) | nindent 8 }}
     spec:
+      {{- include "leoni.checkGracePeriod" (dict "values" .Values.backend "component" "backend") }}
+      # Délai maximal entre l'ordre d'arrêt et l'arrêt forcé (doit couvrir preStop + arrêt d'uvicorn)
+      terminationGracePeriodSeconds: {{ .Values.backend.terminationGracePeriodSeconds }}
       # Le pod n'appelle jamais l'API Kubernetes : pas de jeton monté
       automountServiceAccountToken: false
       # Utilisateur non-root (uid 10001), profil seccomp par défaut du runtime
@@ -64,6 +67,13 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          lifecycle:
+            # Drainage avant l'arrêt : le pod continue de servir pendant que Traefik et
+            # kube-proxy le retirent de leurs cibles (action "sleep" native de Kubernetes,
+            # aucun binaire nécessaire dans l'image). Évite les 502 lors d'un rolling update.
+            preStop:
+              sleep:
+                seconds: {{ .Values.backend.preStopSleepSeconds }}
           env:
             # Mot de passe lu dans le Secret existant (jamais écrit dans le chart)
             - name: DB_PASSWORD
