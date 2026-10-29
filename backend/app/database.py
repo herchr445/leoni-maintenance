@@ -7,7 +7,7 @@
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -61,6 +61,38 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Classe de base dont tous nos modèles (Ticket, etc.) vont hériter.
 Base = declarative_base()
+
+# Identifiant du verrou consultatif ("advisory lock") PostgreSQL qui protège la
+# création du schéma. Valeur arbitraire mais FIXE : toutes les répliques du backend
+# doivent demander le même verrou pour s'attendre mutuellement.
+SCHEMA_LOCK_ID = 7_430_201
+
+
+def create_schema(target_engine) -> None:
+    """
+    Crée les tables manquantes (et, sous PostgreSQL, les types ENUM).
+
+    - SQLite (tests, développement local, déploiement Docker Desktop) : simple
+      create_all(), comportement inchangé (une seule instance de l'application).
+    - PostgreSQL (Kubernetes, plusieurs répliques) : create_all() sous verrou
+      consultatif. Sans lui, deux répliques démarrant au même instant sur une base
+      vide pouvaient créer les mêmes tables en parallèle ; l'une échouait et
+      redémarrait. Ici, la première prend le verrou et crée le schéma dans UNE
+      transaction ; les autres attendent, puis constatent que les tables existent
+      (create_all vérifie avant de créer) et ne font rien.
+      pg_advisory_xact_lock est lié à la transaction : il est libéré
+      automatiquement au commit (ou si le processus s'arrête), jamais oublié.
+    """
+    if target_engine.dialect.name != "postgresql":
+        Base.metadata.create_all(bind=target_engine)
+        return
+    # begin() : transaction validée (commit) à la sortie du bloc → libère le verrou
+    with target_engine.begin() as connection:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": SCHEMA_LOCK_ID}
+        )
+        # Même connexion, donc même transaction, que le verrou
+        Base.metadata.create_all(bind=connection)
 
 
 def get_db():

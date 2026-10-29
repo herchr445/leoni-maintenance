@@ -4,10 +4,19 @@
 # Ce test l'appelle directement pour vérifier qu'elle fournit une session
 # utilisable ET qu'elle la ferme bien ensuite (bloc finally).
 
-from sqlalchemy import create_engine, text
+from types import SimpleNamespace
+
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session
 
-from app.database import engine_options, get_database_url, get_db
+from app.database import (
+    SCHEMA_LOCK_ID,
+    Base,
+    create_schema,
+    engine_options,
+    get_database_url,
+    get_db,
+)
 
 
 def test_get_db_yields_working_session_and_closes_it():
@@ -80,3 +89,66 @@ def test_engine_options_postgresql_uses_pre_ping_and_psycopg_driver():
     pg_engine = create_engine(url, **options)
     assert pg_engine.dialect.driver == "psycopg"
     pg_engine.dispose()
+
+
+# --- Création du schéma (create_schema) ---
+
+def test_create_schema_sqlite_creates_tables_without_lock():
+    """
+    SQLite → simple create_all() : la table "tickets" est créée.
+    (Aucun verrou consultatif : cette fonction PostgreSQL n'existe pas en SQLite,
+    l'appel échouerait si create_schema tentait de la prendre.)
+    """
+    sqlite_engine = create_engine("sqlite://")
+
+    create_schema(sqlite_engine)
+
+    assert "tickets" in inspect(sqlite_engine).get_table_names()
+    sqlite_engine.dispose()
+
+
+def test_create_schema_postgresql_runs_create_all_under_advisory_lock(monkeypatch):
+    """
+    PostgreSQL → ordre exact des opérations, vérifié avec un moteur factice
+    (la CI n'a pas de serveur PostgreSQL) :
+      1. ouverture d'une transaction ;
+      2. verrou consultatif pg_advisory_xact_lock avec l'identifiant fixe ;
+      3. create_all sur LA MÊME connexion (donc dans la même transaction) ;
+      4. commit, qui libère le verrou.
+    Si create_all sortait de la transaction ou si le verrou disparaissait,
+    ce test échouerait.
+    """
+    calls = []
+
+    class FakeConnection:
+        def execute(self, statement, params=None):
+            calls.append(("execute", str(statement), params))
+
+    connection = FakeConnection()
+
+    class FakeTransaction:
+        def __enter__(self):
+            calls.append("begin")
+            return connection
+
+        def __exit__(self, *exc_info):
+            calls.append("commit")
+            return False
+
+    fake_engine = SimpleNamespace(
+        dialect=SimpleNamespace(name="postgresql"),
+        begin=lambda: FakeTransaction(),
+    )
+    # Remplace create_all pour ce test seulement (restauré par monkeypatch)
+    monkeypatch.setattr(
+        Base.metadata, "create_all", lambda bind: calls.append(("create_all", bind))
+    )
+
+    create_schema(fake_engine)
+
+    assert calls == [
+        "begin",
+        ("execute", "SELECT pg_advisory_xact_lock(:lock_id)", {"lock_id": SCHEMA_LOCK_ID}),
+        ("create_all", connection),
+        "commit",
+    ]

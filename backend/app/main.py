@@ -11,9 +11,11 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app import crud, models, schemas
-from app.database import Base, engine, get_db
+from app.database import create_schema, engine, get_db
 
-Base.metadata.create_all(bind=engine)
+# Création du schéma au démarrage (sous verrou consultatif avec PostgreSQL,
+# pour que plusieurs répliques démarrant ensemble ne se gênent pas)
+create_schema(engine)
 
 app = FastAPI(title="Leoni Maintenance Ticketing System")
 
