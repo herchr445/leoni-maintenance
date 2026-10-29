@@ -4,11 +4,22 @@ trigger:
   branches:
     include:
       - main
+  # Un push qui ne modifie QUE la documentation ou les manifestes Kubernetes ne
+  # déclenche ni build ni redéploiement sur Docker Desktop (rien ne change pour
+  # cette cible). Dès qu'un autre fichier est modifié dans le push, le pipeline tourne.
+  paths:
+    exclude:
+      - docs
+      - deploy
 
 pr:
   branches:
     include:
       - main
+  paths:
+    exclude:
+      - docs
+      - deploy
 
 stages:
 
