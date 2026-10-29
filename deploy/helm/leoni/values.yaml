@@ -6,6 +6,10 @@
 # AUCUN mot de passe ici : le mot de passe PostgreSQL vient d'un Secret Kubernetes
 # créé à la main (kubectl create secret ...), référencé par postgres.auth.existingSecret.
 
+# Domaine DNS interne du cluster (cluster.local par défaut, dont k3s) : utilisé pour
+# joindre PostgreSQL par son nom complet (résolution immédiate, même base arrêtée)
+clusterDomain: cluster.local
+
 # Contexte de sécurité commun des conteneurs (durcissement, profil "restricted")
 containerSecurityContext:
   # Interdit à un processus de gagner plus de droits que son parent (setuid...)
@@ -111,6 +115,9 @@ postgres:
     pullPolicy: IfNotPresent
   service:
     port: 5432
+  # Délai max d'une tentative de connexion du backend (paramètre libpq connect_timeout) :
+  # base injoignable → /ready répond 503 en ~3 s au lieu de rester bloqué.
+  connectTimeoutSeconds: 3
   auth:
     # Valeurs non secrètes
     username: leoni

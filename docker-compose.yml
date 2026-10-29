@@ -48,7 +48,8 @@ services:
     environment:
       # DATABASE_URL définie → database.py utilise PostgreSQL au lieu de SQLite.
       # "db" = nom du service ci-dessus, résolu par le DNS interne de compose.
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # connect_timeout=3 : base injoignable → /ready répond 503 en ~3 s (comme dans le chart Helm)
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?connect_timeout=3
     ports:
       # 8001 sur le PC → 8000 dans le conteneur (8000 reste au backend Azure)
       - "8001:8000"

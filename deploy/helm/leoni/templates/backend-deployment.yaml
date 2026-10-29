@@ -84,8 +84,14 @@ spec:
             # DATABASE_URL définie → database.py utilise PostgreSQL.
             # $(DB_PASSWORD) est remplacé par Kubernetes au démarrage du conteneur :
             # le mot de passe n'apparaît ni dans le manifeste ni dans "kubectl describe".
+            # connect_timeout : abandon d'une tentative de connexion après N secondes.
+            # Sans lui, /ready restait bloqué sur une adresse injoignable (base arrêtée)
+            # au lieu de renvoyer rapidement 503.
+            # Nom DNS COMPLET (service.namespace.svc.domaine) : base arrêtée, le nom court
+            # mettait 4 s à échouer (requête transmise au DNS externe), le nom complet
+            # échoue immédiatement (zone interne du cluster) → 503 rapide.
             - name: DATABASE_URL
-              value: "postgresql+psycopg://{{ .Values.postgres.auth.username }}:$(DB_PASSWORD)@{{ include "leoni.postgres.fullname" . }}:{{ .Values.postgres.service.port }}/{{ .Values.postgres.auth.database }}"
+              value: "postgresql+psycopg://{{ .Values.postgres.auth.username }}:$(DB_PASSWORD)@{{ include "leoni.postgres.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}:{{ .Values.postgres.service.port }}/{{ .Values.postgres.auth.database }}?connect_timeout={{ .Values.postgres.connectTimeoutSeconds }}"
             # Racine en lecture seule : Python ne tente pas d'écrire de cache .pyc
             - name: PYTHONDONTWRITEBYTECODE
               value: "1"
