@@ -1,0 +1,59 @@
+# leoni-application.yaml — Application ArgoCD : déploiement GitOps de Leoni Maintenance
+#
+# GitOps : le dépôt GitHub est la SOURCE DE VÉRITÉ. ArgoCD (dans le cluster) compare
+# en continu l'état réel du namespace "leoni" avec le chart Helm de ce dépôt, applique
+# toute différence (nouveau commit) et annule toute modification manuelle (dérive).
+# Déployer = committer ; revenir en arrière = annuler un commit.
+#
+# Appliquée une seule fois à la main : kubectl apply -f deploy/argocd/leoni-application.yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  # Nom de l'Application = nom de release Helm par défaut (voir releaseName ci-dessous)
+  name: leoni
+  # Les objets Application vivent dans le namespace d'ArgoCD
+  namespace: argocd
+  # PAS de finalizer "resources-finalizer.argocd.argoproj.io" : supprimer cette
+  # Application ne supprime PAS les ressources de l'application (elles continuent de
+  # tourner, simplement plus gérées par ArgoCD). Choix de prudence volontaire.
+spec:
+  project: default
+  source:
+    # Dépôt public : ArgoCD le lit sans identifiants
+    repoURL: https://github.com/herchr445/leoni-maintenance
+    # Branche suivie : chaque commit sur main est déployé
+    targetRevision: main
+    # Chart Helm du dépôt
+    path: deploy/helm/leoni
+    helm:
+      # Nom de release FIGÉ : il détermine le nom du StatefulSet (leoni-postgres) donc
+      # celui du PVC qu'il réutilise (data-leoni-postgres-0). Un autre nom créerait un
+      # PVC neuf et vide : l'application repartirait sans ses données.
+      releaseName: leoni
+      # Les tags d'image (SHA) vivent DANS GIT, dans ce fichier : pas de --set,
+      # sinon ArgoCD ne pourrait pas reproduire l'état voulu.
+      valueFiles:
+        - values-local.yaml
+  destination:
+    # Le cluster où tourne ArgoCD lui-même
+    server: https://kubernetes.default.svc
+    # Namespace existant (créé à la main avec le Secret leoni-db) : pas de CreateNamespace
+    namespace: leoni
+  syncPolicy:
+    automated:
+      # Supprime du cluster une ressource retirée du chart. Ne concerne QUE les
+      # ressources qu'ArgoCD a lui-même créées (annotation argocd.argoproj.io/tracking-id) :
+      # le Secret leoni-db (créé avec kubectl) et le PVC des données (créé par le
+      # StatefulSet) ne portent pas cette annotation et ne sont donc jamais supprimés.
+      prune: true
+      # Annule automatiquement toute modification faite directement dans le cluster
+      # (ex. kubectl scale) pour revenir à l'état décrit dans Git
+      selfHeal: true
+    # Nouvelle tentative si une synchronisation échoue temporairement
+    # (ex. image encore en cours de téléchargement)
+    retry:
+      limit: 5
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 3m
