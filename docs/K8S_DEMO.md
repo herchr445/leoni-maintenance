@@ -3,7 +3,7 @@
 Manual Helm installation of the application on a local k3s cluster, followed by
 real resilience tests. Every result below was measured on the cluster, not assumed.
 
-- Dates: first run 25 October 2026 (sections 1–3), fixes and final run 29 October 2026 (section 4)
+- Dates: first run 25 October 2026 (sections 1–3), fixes and final run 29 October 2026 (section 4), ArgoCD 30 October 2026 (section 5)
 - Cluster: k3d v5.9.0, k3s **v1.35.5+k3s1**, 1 server + 1 agent node (Docker Desktop, Windows 11)
 - Tools: kubectl v1.34.1, Helm **v4.3.1**
 - Chart: `deploy/helm/leoni` (chart 0.1.0) with `values-local.yaml`
@@ -21,6 +21,8 @@ real resilience tests. Every result below was measured on the cluster, not assum
 | Backend pod deleted | replacement Ready in **6 s**, 150/150 requests OK |
 | Two backends cold-started together on an empty database | **0 restarts in 10 pod starts** (advisory lock) |
 | NetworkPolicy | only backend pods reach PostgreSQL:5432 |
+| GitOps hand-over (Helm → ArgoCD) | Synced / Healthy in **19 s**, data intact (same PVC, same fingerprint) |
+| Drift correction (ArgoCD self-heal) | manual `scale 2 → 5` reverted in **~2 s** |
 
 ## Architecture deployed
 
@@ -316,23 +318,90 @@ A commit touching only `docs/` or `deploy/` does not trigger the Azure DevOps pi
 (`trigger.paths.exclude`) nor the GitHub Actions image build (`paths-ignore`): nothing
 changes for the Docker Desktop deployment or the images.
 
-## 5. State left running
+## 5. GitOps with ArgoCD (30 October 2026)
+
+GitOps: the GitHub repository is the single source of truth. ArgoCD runs in the
+cluster, continuously compares the live namespace with the Helm chart in Git, applies
+every new commit and reverts any manual change (drift). Deploying means committing;
+rolling back means reverting a commit.
+
+### 5.1 Installation
+
+- **ArgoCD v3.5.6**, official manifests pinned to the tag (images `argocd:v3.5.6`,
+  `dex:v2.45.1`, `redis:8.2.3-alpine`), installed with server-side apply (the CRDs are
+  too large for a client-side apply). ArgoCD 3.5 is tested on Kubernetes 1.33–1.36.
+- 7 pods Running, 0 restarts, **144 MiB** of RAM at rest (`kubectl top`).
+- The nodes pulled the 433 MB ArgoCD image from quay.io at 0–270 KB/s; the images were
+  pulled once on the host and loaded into both nodes with `k3d image import` (25 s).
+- UI: `kubectl port-forward svc/argocd-server -n argocd 8443:443` → `https://localhost:8443`, user `admin`.
+
+### 5.2 Hand-over from Helm to ArgoCD — data kept
+
+`deploy/argocd/leoni-application.yaml`: repository `herchr445/leoni-maintenance`, branch
+`main`, path `deploy/helm/leoni`, `values-local.yaml`, namespace `leoni`, automated sync
+with `prune` and `selfHeal`, retry with exponential backoff, no cascading finalizer.
+
+Why the data survives the hand-over:
+
+- The PVC `data-leoni-postgres-0`, the Secret `leoni-db` and the namespace carry no
+  Helm annotation and no owner, so `helm uninstall` does not delete them.
+- A StatefulSet finds its PVC **by name**. The Application pins `releaseName: leoni`,
+  so the new StatefulSet is again `leoni-postgres` and reattaches `data-leoni-postgres-0`.
+  With another release name (e.g. `leoni-app`) it would have created a new, empty PVC.
+- ArgoCD v3.5.6 tracks resources by annotation (`argocd.argoproj.io/tracking-id`): it only
+  manages what it applied itself. The Secret and the PVC have no such annotation, so
+  `prune` never touches them.
+
+| Step | Result |
+|---|---|
+| `helm uninstall leoni` | PVC and Secret kept, **same UIDs**; namespace Active |
+| `kubectl apply` of the Application (1 s later) | **Synced / Healthy 19 s** after the uninstall, revision `62c6fd9` |
+| Data after the sync | **same fingerprint** `85c6824ee32e`, same PVC (the only one in the namespace), 5 work orders |
+| Managed by ArgoCD | 8 resources (3 Services, 2 Deployments, StatefulSet, Ingress, NetworkPolicy), all Synced |
+| Downtime measured (request every 0.2 s) | **16 s** (45 / 569 requests): `404` while the Ingress was gone, `503` until the new pods were Ready |
+
+The 16 s are the cost of `helm uninstall`: a zero-downtime hand-over would let ArgoCD
+adopt the existing resources instead of deleting and recreating them.
+
+### 5.3 Drift correction (self-heal)
+
+Manual drift: `kubectl scale deployment leoni-backend -n leoni --replicas=5`
+(Git says 2). Desired replicas polled every 0.5 s:
+
+| Run | Back to 2 replicas after |
+|---|---|
+| 1 | **2.0 s** |
+| 2 | **1.8 s** |
+| 3 (third drift in ~30 s) | 11.4 s |
+
+An isolated drift is reverted in **about 2 s**. ArgoCD spaces out repeated self-heals on
+the same application with an exponential backoff (2 s, × 3 each time, capped at 300 s —
+`controller.self.heal.backoff.*`, defaults), so that it never fights another tool in a
+loop; this explains the third run. ArgoCD logs each correction as an automated
+"Partial sync … succeeded" (only the drifted resource is re-applied).
+
+## 6. State left running
 
 | | |
 |---|---|
-| Helm release | `leoni`, revision 21, `deployed`, images `298b48d` |
+| Deployment method | **ArgoCD** Application `leoni` (automated, prune, selfHeal), Synced / Healthy, revision `62c6fd9` |
+| Images | `298b48d` (set in `values-local.yaml` in Git) |
 | Pods | 2 backend, 2 frontend, 1 postgres — all `1/1 Running`, 0 restarts |
-| Resources (`kubectl top`) | backend ~58 MiB each, frontend ~13 MiB each, postgres ~21 MiB |
+| Resources (`kubectl top`) | backend ~58 MiB each, frontend ~13 MiB each, postgres ~21 MiB; ArgoCD 144 MiB |
 | Data | 5 work orders in PostgreSQL (PVC `data-leoni-postgres-0`) |
 
 Useful commands:
 
 ```powershell
 kubectl get pods -n leoni
-helm history leoni -n leoni
+kubectl get application leoni -n argocd          # sync and health status
+kubectl port-forward svc/argocd-server -n argocd 8443:443
 k3d cluster stop leoni     # free RAM; k3d cluster start leoni to resume (data kept)
 ```
 
-Data safety: `helm uninstall` and `helm upgrade` do not delete the PVC
-(it is created by the StatefulSet, not by Helm, and its retention policy is `Retain`).
+From now on, changes go through Git: a manual `kubectl` or `helm` change on the
+`leoni` namespace is reverted by ArgoCD.
+
+Data safety: uninstalling, upgrading or re-syncing does not delete the PVC (it is
+created by the StatefulSet, not by Helm or ArgoCD, and its retention policy is `Retain`).
 The data is deleted only by `kubectl delete pvc`, deleting the namespace, or deleting the cluster.
