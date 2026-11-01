@@ -3,7 +3,7 @@
 Manual Helm installation of the application on a local k3s cluster, followed by
 real resilience tests. Every result below was measured on the cluster, not assumed.
 
-- Dates: first run 25 October 2026 (sections 1–3), fixes and final run 29 October 2026 (section 4), ArgoCD 30 October 2026 (section 5)
+- Dates: first run 25 October 2026 (sections 1–3), fixes and final run 29 October 2026 (section 4), ArgoCD 30 October 2026 (section 5), full GitOps loop 1 November 2026 (section 6)
 - Cluster: k3d v5.9.0, k3s **v1.35.5+k3s1**, 1 server + 1 agent node (Docker Desktop, Windows 11)
 - Tools: kubectl v1.34.1, Helm **v4.3.1**
 - Chart: `deploy/helm/leoni` (chart 0.1.0) with `values-local.yaml`
@@ -23,6 +23,7 @@ real resilience tests. Every result below was measured on the cluster, not assum
 | NetworkPolicy | only backend pods reach PostgreSQL:5432 |
 | GitOps hand-over (Helm → ArgoCD) | Synced / Healthy in **19 s**, data intact (same PVC, same fingerprint) |
 | Drift correction (ArgoCD self-heal) | manual `scale 2 → 5` reverted in **~2 s** |
+| Full GitOps loop (push → live, no manual command) | **6 min 48 s – 8 min 09 s** (GitHub run ~3.5 min, ArgoCD detection ~3 min, rollout < 45 s) |
 
 ## Architecture deployed
 
@@ -380,12 +381,119 @@ the same application with an exponential backoff (2 s, × 3 each time, capped at
 loop; this explains the third run. ArgoCD logs each correction as an automated
 "Partial sync … succeeded" (only the drifted resource is re-applied).
 
-## 6. State left running
+## 6. Full GitOps loop: push code → live in the cluster (1 November 2026)
+
+No manual command between `git push` and the change being visible on `http://localhost:8090`.
+
+### 6.1 The chain
+
+1. **GitHub Actions** (on every push to `main` outside `deploy/**` and `docs/**`):
+   tests, Ruff, Bandit, SonarCloud analysis with a **blocking Quality Gate** → build both
+   images → Trivy report (non-blocking) + **blocking check on fixable CRITICAL
+   vulnerabilities** → push to GHCR with the short commit SHA as tag.
+2. **Tag bump job** (`update-tags`, the only job with `contents: write`): writes the new tag
+   into `deploy/helm/leoni/values-local.yaml` and pushes a commit as `github-actions[bot]`
+   (strict `sed` on the two tag lines + guards; retry loop if `main` moved).
+   No infinite loop: a push made with the run's `GITHUB_TOKEN` never triggers a workflow,
+   and the commit only touches `deploy/**` (`paths-ignore`). It does not trigger the Azure
+   pipeline either (`trigger.paths.exclude: deploy`).
+3. **ArgoCD** polls the repository (default every 3 minutes), sees the new tags and rolls
+   out the new images (rolling update with `preStop` drain).
+
+The gates were proven in real conditions: a first run stopped at "Block on fixable CRITICAL
+vulnerabilities (frontend)" (CVE-2026-111497 in `brotli-libs` of the nginx base image);
+nothing was published or deployed until the fix (`apk upgrade brotli-libs`, base pinned to
+`nginx-unprivileged:1.31.7-alpine3.24`).
+
+### 6.2 End-to-end test — measured timings
+
+Cycle 1: visible text change in `frontend/src/App.jsx` (subtitle + "(test GitOps E2E)").
+Cycle 2: `git revert` of that commit. Times from the GitHub API (runs #9 and #10), the bot
+commits, ArgoCD's history and a watcher polling `localhost:8090` every 3 s.
+
+| Stage | Cycle 1 (change) | Cycle 2 (revert) |
+|---|---|---|
+| GitHub job 1: tests, Quality Gate, SonarCloud | 1 min 27 s | 1 min 21 s |
+| GitHub job 2: build, blocking Trivy, push to GHCR | 2 min 06 s | 1 min 46 s |
+| GitHub job 3: tag bump commit | 8 s | 6 s |
+| **Whole GitHub Actions run** | **3 min 50 s** | **3 min 22 s** |
+| ArgoCD detection of the bot commit (polling) | 3 min 27 s | 3 min 10 s |
+| Rolling update (incl. pulling the new images) | 44 s | 38 s |
+| **Push → change visible on `localhost:8090`** | **8 min 09 s** | **6 min 48 s** |
+
+| Cycle | Push | Bot commit | ArgoCD sync | Visible |
+|---|---|---|---|---|
+| 1 | `13f8de2` 11:56:12 | `6b17878` 11:59:59 | 12:03:29 | 12:04:21 |
+| 2 | `a21d620` 12:26:51 | `d5f0fef` 12:30:09 | 12:33:22 | 12:33:39 |
+
+(UTC.) In cycle 2 the new text was served 17 s after the sync started, before the rollout
+finished: Traefik sends traffic to each new pod as soon as it is Ready.
+
+The longest stage is ArgoCD's detection (~45 % of the total). It could be shortened by
+lowering `timeout.reconciliation` (default 180 s) or with a webhook from GitHub — not
+possible here, since GitHub cannot reach a cluster running on a laptop.
+
+The Azure DevOps pipeline stayed green on the same commits (runs 20261101.3 and
+20261101.4, CI + Deploy Succeeded), and did not run for the bot commits.
+
+### 6.3 Blank page after a rollout — diagnosed and fixed
+
+After cycle 2, `localhost:8090` stayed blank until a hard reload (Ctrl+Shift+R).
+
+Diagnosis (headers of the running frontend):
+
+- `index.html` had no `Cache-Control`: browsers may reuse it on their own (heuristic cache,
+  ~10 % of its age) and request JS files of an older version.
+- A missing `/assets/*.js` answered **`200 text/html`** (the SPA fallback served
+  `index.html`). The browser refuses to run HTML as a script → blank page.
+- During a rolling update, old and new pods serve requests together for a few seconds.
+  A browser can get the new `index.html` from a new pod and its JS from an old pod
+  → `200 text/html` → **and the browser caches that wrong response**, so every normal
+  reload stays blank.
+
+Fix in `frontend/nginx.conf`:
+
+| Path | Before | After |
+|---|---|---|
+| `index.html`, `/`, SPA routes | no `Cache-Control` | `no-cache` (always revalidated, `304` if unchanged) |
+| `/assets/*` (hashed names) | no `Cache-Control` | `public, max-age=31536000, immutable` |
+| missing `/assets/*` | `200` + `index.html` | `404` + `no-store` |
+
+Test: temporary namespace with only the frontend (2 replicas, same `preStop`) on a
+dedicated host, and a browser simulator applying the browser cache rules (F5 =
+revalidate the page, cached sub-resources). 4 browsers reload every 0.5 s before,
+during and after each rolling update.
+
+| nginx config | Rollouts | Blank loads during the version overlap | Blank reloads **after** the rollout (poisoned cache) |
+|---|---|---|---|
+| before | 2 | 1 | **288** (58 + 230; up to 4/4 browsers stuck until a hard reload) |
+| after | 2 | 6 (each followed by a working reload) | **0** |
+
+The reported bug (a page that stays blank) is gone. What remains: a browser that reloads
+during the ~3 s overlap can get one blank load (its JS requested from an old pod → `404`);
+the next reload works. A Traefik sticky cookie was tested to keep each browser on one pod
+and **rejected**: browsers pinned to a stopping pod got `502` / no response for up to 14 s
+(11 errors). Removing the last transient case would need the previous version's assets to
+stay available during a rollout (kept in the new image, or served from shared storage/CDN).
+
+### 6.4 Keeping the two remotes in sync
+
+The bot commits only exist on GitHub. After each code push:
+
+```powershell
+git push origin main                # Azure: build + Docker Desktop deployment
+git push github main                # GitHub: tests → images → bot tag commit → ArgoCD
+# wait for the GitHub run to finish, then:
+git pull --ff-only github main      # bring the bot commit locally
+git push origin main                # Azure Repos identical (deploy/ only → no Azure run)
+```
+
+## 7. State left running
 
 | | |
 |---|---|
-| Deployment method | **ArgoCD** Application `leoni` (automated, prune, selfHeal), Synced / Healthy, revision `62c6fd9` |
-| Images | `298b48d` (set in `values-local.yaml` in Git) |
+| Deployment method | **ArgoCD** Application `leoni` (automated, prune, selfHeal), Synced / Healthy, revision `d5f0fef` (bot commit) |
+| Images | `a21d620` (written into `values-local.yaml` by the GitHub Actions bot) |
 | Pods | 2 backend, 2 frontend, 1 postgres — all `1/1 Running`, 0 restarts |
 | Resources (`kubectl top`) | backend ~58 MiB each, frontend ~13 MiB each, postgres ~21 MiB; ArgoCD 144 MiB |
 | Data | 5 work orders in PostgreSQL (PVC `data-leoni-postgres-0`) |
