@@ -244,7 +244,7 @@ function App() {
             <h2 className="font-display uppercase tracking-wide text-blueprint-900 text-lg">
               Nouvel ordre de travail
             </h2>
-            <p className="text-steel-400 text-sm">Signaler un problème sur une machine (test GitOps E2E)</p>
+            <p className="text-steel-400 text-sm">Signaler un problème sur une machine</p>
           </div>
           <div className="px-6 pb-6 grid grid-cols-1 md:grid-cols-4 gap-4">
             <input
