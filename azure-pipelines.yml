@@ -11,6 +11,8 @@ trigger:
     exclude:
       - docs
       - deploy
+      # Fichiers Markdown à la racine (README.md...), comme dans build-push.yml
+      - '*.md'
 
 pr:
   branches:
@@ -20,6 +22,7 @@ pr:
     exclude:
       - docs
       - deploy
+      - '*.md'
 
 stages:
 
