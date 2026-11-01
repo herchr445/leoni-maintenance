@@ -14,6 +14,8 @@ spec:
   {{- if not .Values.backend.autoscaling.enabled }}
   replicas: {{ .Values.backend.replicaCount }}
   {{- end }}
+  # Nombre d'anciens ReplicaSets gardés pour "kubectl rollout undo" (voir values.yaml)
+  revisionHistoryLimit: {{ .Values.backend.revisionHistoryLimit }}
   selector:
     matchLabels:
       {{- include "leoni.selectorLabels" (dict "context" . "component" "backend") | nindent 6 }}

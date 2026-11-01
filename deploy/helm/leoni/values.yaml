@@ -25,6 +25,12 @@ containerSecurityContext:
 # ---------------------------------------------------------------------------
 backend:
   replicaCount: 2
+  # Anciens ReplicaSets conservés après une mise à jour (Kubernetes : 10 par défaut).
+  # Chaque déploiement GitOps en crée un nouveau : sans limite, ils s'accumulent.
+  # Les retours arrière passent par Git (git revert → ArgoCD) ou par l'historique
+  # Helm/ArgoCD, qui n'utilisent pas ces ReplicaSets. Seul "kubectl rollout undo"
+  # en a besoin : il ne peut revenir qu'aux 2 dernières versions conservées.
+  revisionHistoryLimit: 2
   image:
     repository: ghcr.io/herchr445/leoni-backend
     # Tag OBLIGATOIRE = SHA court du commit (jamais "latest"), défini par environnement
@@ -79,6 +85,8 @@ backend:
 # ---------------------------------------------------------------------------
 frontend:
   replicaCount: 2
+  # Anciens ReplicaSets conservés (même logique que le backend)
+  revisionHistoryLimit: 2
   image:
     repository: ghcr.io/herchr445/leoni-frontend
     # Tag OBLIGATOIRE = SHA court du commit (image construite avec VITE_API_URL="")

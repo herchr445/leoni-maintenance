@@ -11,6 +11,8 @@ metadata:
     {{- include "leoni.labels" (dict "context" . "component" "frontend" "version" .Values.frontend.image.tag) | nindent 4 }}
 spec:
   replicas: {{ .Values.frontend.replicaCount }}
+  # Nombre d'anciens ReplicaSets gardés pour "kubectl rollout undo" (voir values.yaml)
+  revisionHistoryLimit: {{ .Values.frontend.revisionHistoryLimit }}
   selector:
     matchLabels:
       {{- include "leoni.selectorLabels" (dict "context" . "component" "frontend") | nindent 6 }}
