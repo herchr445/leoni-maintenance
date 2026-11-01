@@ -24,7 +24,7 @@ on:
   workflow_dispatch:
 
 # Moindre privilège : lecture seule par défaut ; seul le job build reçoit
-# packages: write. contents: write ne sera ajouté qu'en phase 6 (commit du tag).
+# packages: write, et seul le job update-tags reçoit contents: write (commit du tag).
 permissions:
   contents: read
 
@@ -122,6 +122,9 @@ jobs:
       contents: read
       # Nécessaire pour publier dans GHCR avec le GITHUB_TOKEN du run
       packages: write
+    # Tag exposé au job update-tags (qui écrit ce tag dans Git)
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -219,3 +222,80 @@ jobs:
             echo "- \`${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}\`"
             echo "- \`${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===================================================================
+  # JOB 3 : GitOps — écrire les nouveaux tags d'image dans Git
+  # ===================================================================
+  # ArgoCD déploie ce que dit Git : en mettant à jour values-local.yaml avec le
+  # tag des images qui viennent d'être publiées, un push de code arrive dans le
+  # cluster sans aucune commande manuelle.
+  #
+  # Pas de boucle infinie, pour deux raisons indépendantes :
+  # 1. un push fait avec le GITHUB_TOKEN du run ne déclenche JAMAIS de nouveau
+  #    workflow (règle de GitHub) ;
+  # 2. le commit ne modifie que deploy/**, ignoré par "paths-ignore" ci-dessus.
+  update-tags:
+    name: Update image tags in Git (GitOps)
+    # Seulement si les images ont bien été construites et publiées
+    needs: build
+    # Seulement pour la branche suivie par ArgoCD
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    # SEUL job autorisé à écrire dans le dépôt (le reste du workflow est en lecture seule)
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Historique complet : le commit est créé au-dessus du main le plus récent
+          fetch-depth: 0
+
+      - name: Update tags and push (retry if main moved)
+        env:
+          # Tag des images publiées par le job build (7 premiers caractères du SHA)
+          TAG: ${{ needs.build.outputs.tag }}
+          VALUES_FILE: deploy/helm/leoni/values-local.yaml
+        run: |
+          set -euo pipefail
+          # Garde-fou : le tag doit être exactement 7 caractères hexadécimaux
+          [[ "$TAG" =~ ^[0-9a-f]{7}$ ]] || { echo "invalid tag: '$TAG'"; exit 1; }
+
+          # Identité standard du bot GitHub Actions (pas un compte personnel)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # Les runs sur main sont déjà sérialisés (concurrency du workflow). La boucle
+          # couvre le cas restant : une personne pousse sur main pendant ce job →
+          # push refusé (non fast-forward) → on repart du main le plus récent.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Remplacement STRICT : uniquement les lignes   tag: "<7 hexa>"
+            # (guillemets conservés : un SHA tout en chiffres resterait une chaîne)
+            sed -E -i "s/^([[:space:]]+tag: )\"[0-9a-f]{7}\"$/\1\"${TAG}\"/" "$VALUES_FILE"
+
+            if git diff --quiet -- "$VALUES_FILE"; then
+              echo "Tags already set to $TAG: nothing to commit."
+              exit 0
+            fi
+
+            # Garde-fous : exactement 2 lignes portent le nouveau tag (backend et
+            # frontend) et le diff ne touche que ces 2 lignes
+            [ "$(grep -cE "^[[:space:]]+tag: \"${TAG}\"$" "$VALUES_FILE")" -eq 2 ] \
+              || { echo "expected exactly 2 tag lines"; git diff; exit 1; }
+            [ "$(git diff --numstat -- "$VALUES_FILE" | cut -f1,2)" = "$(printf '2\t2')" ] \
+              || { echo "unexpected changes"; git diff; exit 1; }
+
+            git add "$VALUES_FILE"
+            git commit -m "deploy: update image tags to ${TAG}"
+            if git push origin HEAD:main; then
+              echo "### Deployment tags updated to \`${TAG}\` in \`${VALUES_FILE}\`" >> "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            echo "Push rejected (main moved), retry $attempt/5..."
+            sleep $((attempt * 5))
+          done
+          echo "Could not push the tag update after 5 attempts"
+          exit 1
