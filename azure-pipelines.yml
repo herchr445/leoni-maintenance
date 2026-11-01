@@ -109,9 +109,46 @@ stages:
           docker build -t leoni-maintenance-backend:$(Build.BuildId) .
         displayName: 'Construire l''image Docker (Backend)'
 
+      # ----- BASE DE VULNÉRABILITÉS TRIVY : mise à jour, ou repli sur le cache -----
+      # Sur une connexion lente, le téléchargement de la base échouait (FATAL après
+      # 5 min) et le scan était perdu. Ici : une seule tentative de mise à jour avec un
+      # délai raisonnable ; en cas d'échec, les scans utilisent la base déjà en cache
+      # sur l'agent, avec un AVERTISSEMENT indiquant son âge (au lieu de ne rien scanner).
+      # Variable TrivyDbReady : "true" si une base (fraîche ou en cache) est utilisable.
+      - powershell: |
+          $ErrorActionPreference = 'Continue'
+          $trivy = 'C:\tools\trivy\trivy.exe'
+          # 1. Tentative de mise à jour (3 min max)
+          & $trivy image --download-db-only --timeout 3m --quiet
+          $downloaded = ($LASTEXITCODE -eq 0)
+          # 2. Date de la base disponible (fraîche ou en cache) : trivy version --format json
+          $info = (& $trivy version --format json) | ConvertFrom-Json
+          $updated = $info.VulnerabilityDB.UpdatedAt
+          if (-not $updated) {
+            Write-Host "##vso[task.logissue type=warning]Trivy: database download failed and NO cached database exists on the agent. Image scans are skipped."
+            Write-Host "##vso[task.setvariable variable=TrivyDbReady]false"
+            exit 0
+          }
+          # UpdatedAt a 9 décimales (non lisible tel quel par .NET) : on garde la seconde
+          $updatedUtc = [datetime]::ParseExact($updated.Substring(0, 19), 'yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture)
+          $ageDays = [math]::Round(((Get-Date).ToUniversalTime() - $updatedUtc).TotalDays, 1)
+          if ($downloaded) {
+            Write-Host "Trivy database updated (published $($updatedUtc.ToString('yyyy-MM-dd HH:mm')) UTC)."
+          } else {
+            Write-Host "##vso[task.logissue type=warning]Trivy: database download failed or exceeded the 3 min timeout. Scanning with the CACHED database published $($updatedUtc.ToString('yyyy-MM-dd HH:mm')) UTC ($ageDays days old): vulnerabilities disclosed since then are not detected."
+          }
+          Write-Host "##vso[task.setvariable variable=TrivyDbReady]true"
+          exit 0
+        displayName: 'Préparer la base Trivy (mise à jour ou cache)'
+        # Les messages de Trivy sortent sur stderr : ne pas les traiter comme des erreurs
+        errorActionPreference: continue
+        continueOnError: true
+
       - script: |
-          C:\tools\trivy\trivy.exe image --severity HIGH,CRITICAL leoni-maintenance-backend:$(Build.BuildId)
+          C:\tools\trivy\trivy.exe image --skip-db-update --severity HIGH,CRITICAL leoni-maintenance-backend:$(Build.BuildId)
         displayName: 'Scanner l''image Docker Backend (Trivy)'
+        # Base déjà préparée à l'étape précédente : pas de second téléchargement
+        condition: and(succeeded(), eq(variables['TrivyDbReady'], 'true'))
         continueOnError: true
 
       - script: |
@@ -120,8 +157,9 @@ stages:
         displayName: 'Construire l''image Docker (Frontend)'
 
       - script: |
-          C:\tools\trivy\trivy.exe image --severity HIGH,CRITICAL leoni-maintenance-frontend:$(Build.BuildId)
+          C:\tools\trivy\trivy.exe image --skip-db-update --severity HIGH,CRITICAL leoni-maintenance-frontend:$(Build.BuildId)
         displayName: 'Scanner l''image Docker Frontend (Trivy)'
+        condition: and(succeeded(), eq(variables['TrivyDbReady'], 'true'))
         continueOnError: true
 
       # ----- SONARCLOUD : ANALYSE & PUBLICATION (fin du stage CI) -----
