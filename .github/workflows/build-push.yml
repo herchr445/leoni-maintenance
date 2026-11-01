@@ -17,9 +17,14 @@ on:
     branches: [main]
     # Pas d'exécution inutile quand seuls les manifestes de déploiement ou la
     # documentation changent (et, en phase 6, pas de boucle sur le commit de tag).
+    # Le run est ignoré seulement si TOUS les fichiers du push correspondent :
+    # un push qui modifie aussi du code déclenche toujours le build.
     paths-ignore:
       - "deploy/**"
       - "docs/**"
+      # Fichiers Markdown à la racine (README.md...) : "*" ne traverse pas les "/",
+      # un .md dans backend/ ou frontend/ déclenche donc toujours le build
+      - "*.md"
   # Relance manuelle possible depuis l'onglet Actions
   workflow_dispatch:
 
