@@ -102,6 +102,11 @@ jobs:
           # Les deux Dockerfiles sont dans les sources pour que SonarCloud analyse
           # aussi les images (non-root, --only-binary, hashes...) ; un Dockerfile
           # n'a pas de lignes à couvrir, la couverture n'est donc pas affectée.
+          # sonar.qualitygate.wait=true : le scanner attend le verdict du Quality Gate
+          # et ÉCHOUE s'il est rouge → le job test échoue, donc build (needs: test)
+          # ne s'exécute pas : aucune image publiée, aucun tag mis à jour, rien déployé.
+          # sonar.qualitygate.timeout=300 : au-delà de 5 min d'attente, échec net
+          # plutôt qu'un job bloqué indéfiniment.
           args: >
             -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
             -Dsonar.projectKey=${{ env.SONAR_PROJECT_KEY }}
@@ -110,6 +115,8 @@ jobs:
             -Dsonar.python.version=3.13
             -Dsonar.python.coverage.reportPaths=backend/coverage.xml
             -Dsonar.coverage.exclusions=frontend/**
+            -Dsonar.qualitygate.wait=true
+            -Dsonar.qualitygate.timeout=300
 
   # ===================================================================
   # JOB 2 : images Docker → scan Trivy → publication dans GHCR
@@ -172,6 +179,21 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: "0"
 
+      - name: Block on fixable CRITICAL vulnerabilities (backend)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        # BLOQUANT (pas de continue-on-error) : une vulnérabilité CRITICAL pour laquelle
+        # un correctif existe fait échouer le job AVANT le push → image jamais publiée,
+        # tag jamais mis à jour, rien déployé. Les CRITICAL sans correctif (ignore-unfixed)
+        # restent visibles dans le rapport ci-dessus mais ne bloquent pas : aucune mise
+        # à jour ne peut encore les corriger.
+        with:
+          version: v0.74.0
+          image-ref: ${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
       - name: Push backend image
         run: docker push "${{ env.IMAGE_PREFIX }}/leoni-backend:${{ steps.meta.outputs.tag }}"
 
@@ -210,6 +232,17 @@ jobs:
           image-ref: ${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}
           severity: HIGH,CRITICAL
           exit-code: "0"
+
+      - name: Block on fixable CRITICAL vulnerabilities (frontend)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        # BLOQUANT, même règle que pour le backend (CRITICAL avec correctif disponible)
+        with:
+          version: v0.74.0
+          image-ref: ${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}
+          scanners: vuln
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
 
       - name: Push frontend image
         run: docker push "${{ env.IMAGE_PREFIX }}/leoni-frontend:${{ steps.meta.outputs.tag }}"
