@@ -7,12 +7,12 @@ backend:
   image:
     # SHA court du dernier run GitHub Actions vert (images publiées dans GHCR).
     # Entre guillemets : un SHA uniquement numérique serait sinon lu comme un nombre.
-    tag: "0fee1b3"
+    tag: "1cddfef"
 
 frontend:
   replicaCount: 2
   image:
-    tag: "0fee1b3"
+    tag: "1cddfef"
 
 postgres:
   persistence:
