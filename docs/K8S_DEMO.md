@@ -1,7 +1,83 @@
 # Kubernetes demo — Leoni Maintenance on a local k3s cluster (k3d)
 
-Manual Helm installation of the application on a local k3s cluster, followed by
-real resilience tests. Every result below was measured on the cluster, not assumed.
+- **Part A** — a 5-minute live demo script for interviews.
+- **Part B** — the detailed test record: installation, resilience tests, problems found,
+  fixes, ArgoCD and the full GitOps loop. Every result was measured on the cluster, not assumed.
+
+# Part A — 5-minute live demo
+
+Message to convey: *a `git push` reaches a Kubernetes cluster with no manual command,
+only after blocking quality and security gates, and the cluster repairs itself.*
+
+## A.1 Preparation (before the interview, ~15 min)
+
+The full GitOps loop takes about 7 minutes, too long to wait for live: **start it before
+the interview** and show the result during the demo.
+
+```powershell
+# 1. Cluster and ArgoCD up (k3d cluster start leoni if it was stopped)
+kubectl get nodes                                  # 2 nodes Ready
+kubectl get application leoni -n argocd            # Synced / Healthy
+kubectl get pods -n leoni                          # 5 pods 1/1 Running
+
+# 2. ~10 min before: one visible change, pushed to both remotes
+#    (e.g. the subtitle in frontend/src/App.jsx)
+git commit -am "demo: visible change" ; git push origin main ; git push github main
+
+# 3. Open the tabs, in this order
+#    http://localhost:8090                                      application (k3s)
+#    https://localhost:8443                                     ArgoCD (needs the port-forward below)
+#    https://github.com/herchr445/leoni-maintenance/actions     GitHub Actions run
+#    https://sonarcloud.io/dashboard?id=herchr445_leoni-maintenance
+#    https://dev.azure.com/RAMIHERCH/leoni-maintenance/_build   Azure DevOps pipeline
+kubectl port-forward svc/argocd-server -n argocd 8443:443      # separate terminal, keep open
+```
+
+Have this file open on the measured results (Part B) in case of detailed questions.
+After the interview: `git revert HEAD` and push both remotes (same loop, back to the original text).
+
+## A.2 Script
+
+| Time | Show | Say |
+|---|---|---|
+| **0:00–0:40** | `localhost:8090`: create a work order, change its status, KPIs update | "A maintenance ticketing app for a wiring-harness plant: FastAPI, React, PostgreSQL. Built during my internship with an Azure DevOps pipeline to Docker Desktop; I then extended it to Kubernetes and GitOps." |
+| **0:40–1:40** | GitHub Actions run of the demo commit: 3 jobs | "Every push runs the tests (33, 100 % coverage), Ruff and Bandit, then a **blocking** SonarCloud Quality Gate. Then both images are built and a **blocking** Trivy check stops anything with a fixable CRITICAL CVE — it really stopped a deployment once, for a brotli CVE in the nginx base image. Images go to GHCR, tagged with the commit SHA. The last job is a bot commit that writes the new tag into Git." |
+| **1:40–2:40** | ArgoCD: resource tree, then *History and rollback* | "ArgoCD runs in the cluster and polls Git. It saw the bot commit and rolled out the new images — no `kubectl` from me. Git is the source of truth: rolling back is a `git revert`. Push to live: 6 min 48 s to 8 min 09 s, measured; half of it is ArgoCD's 3-minute polling, because GitHub can't send a webhook to a laptop." Reload `localhost:8090`: the change is live. |
+| **2:40–3:40** | Terminal: drift and self-healing | Commands below. "If someone changes the cluster by hand, ArgoCD reverts it in about 2 seconds. If a pod dies, Kubernetes replaces it — 6 s measured, with 0 failed requests because the second replica serves the traffic." |
+| **3:40–4:30** | Terminal: security | "All pods run as non-root with a read-only filesystem and no Linux capabilities. A NetworkPolicy lets only the backend reach PostgreSQL. The DB password is a Kubernetes Secret that never went into Git; Gitleaks scans the whole history on every build." Show the NetworkPolicy test below. |
+| **4:30–5:00** | README *Measured results* table | "Rolling updates: 0 failed requests out of 904. Database down: `/ready` answers 503 in 7 ms so traffic is moved away instead of hanging. And everything I hit along the way is documented in the troubleshooting table." |
+
+Commands for 2:40–4:30 (PowerShell):
+
+```powershell
+# Drift: Git says 2 replicas
+kubectl scale deployment leoni-backend -n leoni --replicas=5
+kubectl get deployment leoni-backend -n leoni -w     # back to 2 in ~2 s, Ctrl+C
+
+# Self-healing: delete one backend pod
+kubectl get pods -n leoni -l app.kubernetes.io/component=backend
+kubectl delete pod -n leoni <one backend pod>
+kubectl get pods -n leoni -w                          # replacement Ready in ~6 s, Ctrl+C
+
+# NetworkPolicy: a pod without the backend labels cannot reach PostgreSQL
+kubectl run nettest -n leoni --image=postgres:16.15-alpine --restart=Never --rm -i --command -- `
+  sh -c 'pg_isready -h leoni-postgres -p 5432 -t 4; wget -qO- -T 4 http://leoni-backend:8000/health'
+#   → "no response" for PostgreSQL, {"status":"ok"} for the backend
+```
+
+## A.3 Likely questions
+
+| Question | Short answer |
+|---|---|
+| Why k3d and not a cloud cluster? | Free, runs on the existing Docker Desktop, real k3s; the same chart would run on AKS/EKS. |
+| Why two pipelines? | Azure DevOps was the internship deliverable (deploys on the PC) and stays unchanged; GitHub Actions + ArgoCD is the Kubernetes path. Path filters keep them independent. |
+| Why polling and not a webhook? | GitHub cannot reach a cluster on a laptop. In production: webhook or a shorter `timeout.reconciliation`. |
+| How do you avoid an infinite loop with the bot commit? | A push with the run's `GITHUB_TOKEN` never triggers a workflow, and the commit only touches `deploy/**`, which is in `paths-ignore`. |
+| What would you do next? | Alembic migrations, External Secrets / Sealed Secrets, a staging environment with promotion, backups of the PVC. |
+
+---
+
+# Part B — Detailed test record
 
 - Dates: first run 25 October 2026 (sections 1–3), fixes and final run 29 October 2026 (section 4), ArgoCD 30 October 2026 (section 5), full GitOps loop 1 November 2026 (section 6)
 - Cluster: k3d v5.9.0, k3s **v1.35.5+k3s1**, 1 server + 1 agent node (Docker Desktop, Windows 11)
@@ -492,9 +568,9 @@ git push origin main                # Azure Repos identical (deploy/ only → no
 
 | | |
 |---|---|
-| Deployment method | **ArgoCD** Application `leoni` (automated, prune, selfHeal), Synced / Healthy, revision `d5f0fef` (bot commit) |
-| Images | `a21d620` (written into `values-local.yaml` by the GitHub Actions bot) |
-| Pods | 2 backend, 2 frontend, 1 postgres — all `1/1 Running`, 0 restarts |
+| Deployment method | **ArgoCD** Application `leoni` (automated, prune, selfHeal), Synced / Healthy, revision `21c643d` (bot commit) |
+| Images | `c2b613f` (frontend cache fix; written into `values-local.yaml` by the GitHub Actions bot) |
+| Pods | 2 backend, 2 frontend, 1 postgres — all `1/1 Running` (postgres: 1 restart when the k3d nodes restarted with Docker Desktop on 1 November; data intact) |
 | Resources (`kubectl top`) | backend ~58 MiB each, frontend ~13 MiB each, postgres ~21 MiB; ArgoCD 144 MiB |
 | Data | 5 work orders in PostgreSQL (PVC `data-leoni-postgres-0`) |
 
