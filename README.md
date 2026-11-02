@@ -8,7 +8,7 @@ Le projet a ensuite été étendu à **Kubernetes et GitOps** : chart Helm, clus
 
 - [Fonctionnalités](#fonctionnalités)
 - [Stack technique](#stack-technique)
-- [Architecture](#architecture)
+- [Architecture du déploiement Docker Desktop](#architecture-du-déploiement-docker-desktop)
 - [Base de données, santé et sécurité des conteneurs](#base-de-données-santé-et-sécurité-des-conteneurs)
 - [Pipeline CI/CD](#pipeline-cicd)
 - [Lancer le projet en local](#lancer-le-projet-en-local)
@@ -44,7 +44,9 @@ Le projet a ensuite été étendu à **Kubernetes et GitOps** : chart Helm, clus
 | Kubernetes & GitOps | k3s (via k3d) · Helm · ArgoCD · Traefik · GitHub Container Registry (GHCR) |
 | Qualité & Sécurité | Ruff · Bandit · Gitleaks · Trivy · SonarCloud |
 
-## Architecture
+## Architecture du déploiement Docker Desktop
+
+Déploiement réalisé pendant le stage, par la chaîne Azure DevOps. Le déploiement sur Kubernetes est décrit plus bas, dans [Kubernetes & GitOps](#kubernetes--gitops).
 
 ```
 ┌─────────────┐      HTTP/REST      ┌──────────────┐      SQLAlchemy      ┌──────────────┐
@@ -155,60 +157,61 @@ Le détail des tests et des mesures est dans [`docs/K8S_DEMO.md`](docs/K8S_DEMO.
 
 ### Architecture des deux chaînes de déploiement
 
+**Chaîne Azure DevOps → Docker Desktop** (livrable du stage, remote `origin`) :
+
 ```mermaid
-flowchart LR
-    dev["Développeur<br/>git push"]
+flowchart TD
+    repo["Azure Repos"] --> PIPE
 
-    subgraph AZ["Azure DevOps : livrable du stage"]
-        azr["Azure Repos"]
-        azp["Pipeline CI/CD<br/>agent self-hosted Windows"]
-        dd["Docker Desktop<br/>frontend :8081 · backend :8000<br/>SQLite sur volume"]
+    subgraph PIPE["Pipeline Azure DevOps"]
+        direction TB
+        tests["Tests pytest"] --> quality["Qualité<br/>Ruff · SonarCloud"]
+        quality --> security["Sécurité<br/>Bandit · Gitleaks"]
+        security --> build["Build Docker"]
+        build --> trivy["Scan Trivy"]
+        trivy --> deploy["Déploiement<br/>+ health checks"]
     end
 
-    subgraph GH["GitHub"]
-        repo["Dépôt herchr445/leoni-maintenance<br/>branche main"]
-        subgraph GHA["GitHub Actions"]
-            tests["Tests pytest · Ruff · Bandit"]
-            qg{"SonarCloud<br/>Quality Gate"}
-            build["Build des images<br/>backend + frontend"]
-            trivy{"Trivy : CVE CRITICAL<br/>avec correctif ?"}
-            push["Push GHCR<br/>tag = SHA court"]
-            bot["Commit du bot<br/>tags dans values-local.yaml"]
-        end
+    PIPE --> DD
+
+    subgraph DD["Docker Desktop"]
+        direction TB
+        fe["Frontend :8081"]
+        be["Backend :8000"] --> db[("SQLite<br/>sur volume")]
+    end
+```
+
+**Chaîne GitHub → Kubernetes, en GitOps** (remote `github`) :
+
+```mermaid
+flowchart TD
+    repo["GitHub"] --> GHA
+
+    subgraph GHA["GitHub Actions"]
+        direction TB
+        tests["Tests + Quality Gate"] --> build["Build des images"]
+        build --> trivy["Trivy bloquant"]
+        trivy --> push["Push GHCR"]
+        push --> bot["Commit du bot<br/>tags d'image"]
     end
 
-    ghcr[("GHCR<br/>ghcr.io/herchr445")]
+    GHA --> argo["ArgoCD<br/>lit Git toutes les 3 min"]
+    argo --> K3S
 
-    subgraph K3S["Cluster k3s : k3d, 2 nœuds"]
-        argo["ArgoCD<br/>sync auto · prune · selfHeal"]
-        subgraph NS["namespace leoni"]
-            ing["Ingress Traefik<br/>localhost:8090"]
-            fe["frontend ×2<br/>nginx non-root"]
-            be["backend ×2<br/>FastAPI non-root"]
-            pg[("PostgreSQL 16<br/>StatefulSet + PVC")]
-            np["NetworkPolicy<br/>seul le backend joint le port 5432"]
-        end
+    subgraph K3S["Cluster k3s"]
+        direction TB
+        ing["Ingress Traefik"] -->|"/"| fe["Frontend ×2"]
+        ing -->|"/api"| be["Backend ×2"]
+        be --> pg[("PostgreSQL<br/>StatefulSet + PVC")]
+        np["NetworkPolicy"] -.->|"backend seul"| pg
     end
-
-    dev -->|git push origin| azr
-    azr --> azp --> dd
-    dev -->|git push github| repo
-    repo --> tests --> qg -->|vert| build --> trivy -->|aucune| push --> ghcr
-    push --> bot -->|commit deploy/** uniquement| repo
-    argo -->|interroge toutes les 3 min| repo
-    argo -->|applique le chart Helm| ing
-    ghcr -.->|pull des images| fe
-    ghcr -.->|pull des images| be
-    ing -->|/| fe
-    ing -->|/api · /health · /ready| be
-    be --> pg
-    np -.- pg
 ```
 
 Les deux chaînes partent du même code : `origin` (Azure Repos) alimente le pipeline
 Azure DevOps qui déploie sur Docker Desktop ; `github` alimente GitHub Actions et ArgoCD
-qui déploient sur Kubernetes. Un Quality Gate rouge ou une CVE CRITICAL corrigeable
-arrête la chaîne avant toute publication d'image : rien n'est déployé.
+qui déploient sur Kubernetes. Le cluster télécharge ses images depuis GHCR. Un Quality
+Gate rouge ou une CVE CRITICAL corrigeable arrête la chaîne avant toute publication
+d'image : rien n'est déployé.
 
 ### Résultats mesurés
 
