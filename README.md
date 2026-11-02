@@ -230,20 +230,26 @@ Mesures réelles sur le cluster local (k3s v1.35.5, 2 nœuds), détaillées dans
 
 ### Captures d'écran
 
+![Vue réseau de l'application dans ArgoCD](docs/img/argocd-network-view.png)
+
+*Vue réseau ArgoCD : Ingress → Services → pods frontend et backend, PostgreSQL à part (Synced / Healthy).*
+
 | | |
 |---|---|
-| ![Arbre des ressources dans ArgoCD](docs/img/argocd-resource-tree.png) | ![Historique des synchronisations ArgoCD](docs/img/argocd-sync-history.png) |
-| Arbre des ressources ArgoCD (Synced / Healthy) | Historique des synchronisations : un commit du bot par déploiement |
-| ![Run GitHub Actions](docs/img/github-actions-run.png) | ![Commits du bot](docs/img/github-bot-commits.png) |
-| Run GitHub Actions : tests → build → mise à jour des tags | Commits `github-actions[bot]` : « deploy: update image tags to … » |
-| ![Déploiement bloqué par Trivy](docs/img/github-actions-trivy-blocked.png) | ![Quality Gate SonarCloud](docs/img/sonarcloud-quality-gate.png) |
-| Run arrêté par Trivy (CVE CRITICAL) : rien n'est déployé | Quality Gate SonarCloud : Passed, 100 % de couverture |
-| ![Images dans GHCR](docs/img/ghcr-packages.png) | ![Ressources Kubernetes](docs/img/kubectl-resources.png) |
-| Images publiées dans GHCR, taguées par SHA | `kubectl get pods,svc,ingress,pvc,networkpolicy -n leoni` |
-| ![Correction de dérive](docs/img/argocd-drift-selfheal.png) | ![Application sur localhost:8090](docs/img/app-localhost-8090.png) |
-| `kubectl scale` à 5 → ArgoCD revient à 2 | L'application servie par le cluster sur `localhost:8090` |
-| ![Pipeline Azure DevOps](docs/img/azure-pipeline-green.png) | |
-| Pipeline Azure DevOps vert (CI + déploiement Docker Desktop) | |
+| ![Arbre des ressources ArgoCD, partie haute](docs/img/argocd-resource-tree-1.png) | ![Arbre des ressources ArgoCD, partie basse](docs/img/argocd-resource-tree-2.png) |
+| Arbre ArgoCD (haut) : Services et Deployment backend, 1 ReplicaSet actif + 2 anciens | Arbre ArgoCD (bas) : frontend, StatefulSet PostgreSQL + PVC, Ingress, NetworkPolicy |
+| ![Correction de dérive par ArgoCD](docs/img/argocd-drift-selfheal.png) | ![Ressources Kubernetes du namespace leoni](docs/img/kubectl-resources.png) |
+| `kubectl scale --replicas=5` : ArgoCD ramène le Deployment aux 2 répliques définies dans Git | `kubectl get pods,svc,ingress,pvc,networkpolicy -n leoni` |
+| ![Run GitHub Actions réussi](docs/img/github-actions-run.png) | ![Commits du bot dans l'historique Git](docs/img/github-bot-commits.png) |
+| Run GitHub Actions : tests et SonarCloud → build, scan et push → mise à jour des tags | Historique Git : commits de code et commits `github-actions[bot]` « deploy: update image tags to … » |
+| ![Run arrêté par le contrôle Trivy](docs/img/github-actions-trivy-blocked.png) | ![Images publiées dans GHCR](docs/img/ghcr-packages.png) |
+| Trivy bloque le run : CVE-2026-111497 (CRITICAL, corrigeable) dans `brotli-libs` ; tags non mis à jour, rien n'est déployé | Image backend dans GHCR, taguée par SHA court. Le badge « Latest » est le libellé GitHub de la version la plus récente, pas un tag `latest` |
+| ![Quality Gate SonarCloud de l'analyse GitHub](docs/img/sonarcloud-quality-gate.png) | ![Quality Gate SonarCloud de l'analyse Azure DevOps](docs/img/sonarcloud-azure.png) |
+| SonarCloud, analyse GitHub Actions : Quality Gate Passed, 100 % de couverture | SonarCloud, analyse Azure DevOps (projet distinct) : Quality Gate Passed, 100 % de couverture |
+| ![Étapes du pipeline Azure DevOps](docs/img/azure-pipeline-green.png) | ![Détail du job BuildAndTest sur Azure DevOps](docs/img/azure-pipeline-steps.png) |
+| Pipeline Azure DevOps vert : CI puis déploiement sur Docker Desktop | Étapes du job CI sur l'agent self-hosted `RAMI-PC` |
+| ![Application sur localhost:8090](docs/img/app-localhost-8090.png) | |
+| L'application servie par le cluster sur `localhost:8090` : indicateurs et ordres de travail | |
 
 ### Démarrer de zéro
 
