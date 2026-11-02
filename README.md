@@ -248,8 +248,8 @@ Mesures réelles sur le cluster local (k3s v1.35.5, 2 nœuds), détaillées dans
 | SonarCloud, analyse GitHub Actions : Quality Gate Passed, 100 % de couverture | SonarCloud, analyse Azure DevOps (projet distinct) : Quality Gate Passed, 100 % de couverture |
 | ![Étapes du pipeline Azure DevOps](docs/img/azure-pipeline-green.png) | ![Détail du job BuildAndTest sur Azure DevOps](docs/img/azure-pipeline-steps.png) |
 | Pipeline Azure DevOps vert : CI puis déploiement sur Docker Desktop | Étapes du job CI sur l'agent self-hosted `RAMI-PC` |
-| ![Application sur localhost:8090](docs/img/app-localhost-8090.png) | |
-| L'application servie par le cluster sur `localhost:8090` : indicateurs et ordres de travail | |
+| ![Application sur localhost:8090](docs/img/app-localhost-8090.png) | ![Historique des déploiements dans ArgoCD](docs/img/argocd-sync-history.png) |
+| L'application servie par le cluster sur `localhost:8090` : indicateurs et ordres de travail | Historique ArgoCD : chaque déploiement lié à sa révision Git, lancé par la synchronisation automatique |
 
 ### Démarrer de zéro
 
